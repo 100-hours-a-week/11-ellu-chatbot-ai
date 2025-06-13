@@ -1,0 +1,106 @@
+from langgraph.graph import StateGraph, END
+from core.state import ConversationState
+from core.chat_node import DetectedIntent, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator
+
+
+
+# 조건부 엣지 - intent에 따른 라우팅
+def route_on_intent(state: ConversationState) -> str:
+    """감지된 intent에 따라 라우팅"""
+    if state.get('conversation_context') == 'awaiting_slot_input':
+        return "schedule"
+    
+    if state.get('intent') == 'schedule':
+        return "schedule"
+    else:
+        return "general"  
+
+# ────────────────────────────────────────────────────────
+# 챗봇 그래프 빌더
+# ────────────────────────────────────────────────────────
+
+class ChatGraphBuilder:
+    def __init__(self):
+        self.graph_builder = StateGraph(ConversationState)
+
+    def add_node(self):
+        self.graph_builder.add_node("detect_intent_and_slots", DetectedIntent())
+        self.graph_builder.add_node("ask_missing_slot", MissingSlotAsker()) 
+        self.graph_builder.add_node("search_exercise_info", ExerciseSearchInfo())
+        # graph_builder.add_node("retrieve_docs", retrieve_docs)
+        # 카테고리별 스케줄 생성 노드
+        self.graph_builder.add_node("generate_exercise_schedule", ExerciseScheduleGenerator())
+        self.graph_builder.add_node("generate_learning_schedule", LearningScheduleGenerator())
+        self.graph_builder.add_node("generate_project_schedule", ProjectScheduleGenerator())
+        self.graph_builder.add_node("generate_schedule", PlannerGenerator()) 
+        self.graph_builder.add_node("general_qa", QaGenerator())
+
+    def set_entry_point(self):
+        self.graph_builder.set_entry_point("detect_intent_and_slots")
+        
+    def add_conditional_edges(self):
+        # intent에 따른 라우팅 설정
+        self.graph_builder.add_conditional_edges(
+            "detect_intent_and_slots",
+            route_on_intent,
+            {
+                "schedule": "ask_missing_slot",
+                "general": "general_qa"
+            }
+        )
+
+        # graph_builder.add_conditional_edges(
+        #     "retrieve_docs",
+        #     "retrieve_docs" 노드에서 category에 따라 라우팅
+        #     route_on_category,
+        #     {
+        #         "learning": "generate_learning_schedule",
+        #         "project": "generate_project_schedule"
+        #     }
+        # )
+
+        # slot 확인 후 라우팅 설정
+        self.graph_builder.add_conditional_edges(
+            "ask_missing_slot",
+            lambda state: (
+                "need_input" if state.get('ask', False)
+                else {
+                    'exercise': 'search_exercise_info',
+                    'learning': 'generate_learning_schedule',
+                    'project': 'generate_project_schedule',
+                    'recurring': 'generate_schedule',
+                    'personal': 'generate_schedule'
+                }.get(state.get('slots', {}).get('category', ''), 'general_qa') 
+            ),
+            {
+                "need_input": END,
+                "search_exercise_info": "search_exercise_info",
+                "generate_learning_schedule": "generate_learning_schedule",
+                "generate_project_schedule": "generate_project_schedule",
+                # "retrieve_docs": "retrieve_docs",
+                "generate_schedule": "generate_schedule", 
+                "general_qa": "general_qa"
+            }
+        )  
+
+    def add_edge(self):
+        # 검색 후 스케줄 생성으로 연결       
+        self.graph_builder.add_edge("search_exercise_info", "generate_exercise_schedule")
+        # 종료 엣지
+        self.graph_builder.add_edge("generate_exercise_schedule", END)
+        self.graph_builder.add_edge("generate_learning_schedule", END)
+        self.graph_builder.add_edge("generate_project_schedule", END)
+        self.graph_builder.add_edge("generate_schedule", END) 
+        self.graph_builder.add_edge("general_qa", END)
+
+    def compile(self):
+        self.add_node()
+        self.set_entry_point()
+        self.add_conditional_edges()
+        self.add_edge()
+        return self.graph_builder.compile()
+    
+chat_graph = ChatGraphBuilder().compile()
+    
+
+
