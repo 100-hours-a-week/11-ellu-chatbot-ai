@@ -1,0 +1,58 @@
+name: Semantic Release
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+jobs:
+  semantic-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+      
+      - name: Setup Node.js for semantic-release
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      
+      - name: Install semantic-release
+        run: |
+          npm init -y
+          npm install --save-dev semantic-release @semantic-release/git @semantic-release/github @semantic-release/changelog @semantic-release/exec
+      
+      - name: Create semantic-release config
+        run: |
+          echo '{
+            "branches": ["main"],
+            "plugins": [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              "@semantic-release/changelog",
+              ["@semantic-release/exec", {
+                "prepareCmd": "echo \"__version__ = '\''${nextRelease.version}'\''\" > version.py"
+              }],
+              ["@semantic-release/git", {
+                "assets": ["version.py", "CHANGELOG.md"],
+                "message": "chore(release): ${nextRelease.version} [skip ci]\\n\\n${nextRelease.notes}"
+              }],
+              ["@semantic-release/github", {
+                "addReleases": "bottom",
+                "successComment": false,
+                "failComment": false,
+                "failTitle": false,
+                "labels": false,
+                "releasedLabels": false
+              }]
+            ]
+          }' > .releaserc.json
+      
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: npx semantic-release
