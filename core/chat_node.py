@@ -72,17 +72,20 @@ class SlotUpdater(BaseNode):
         if state.get('awaiting_slot'):
             slot_name = state['awaiting_slot']
             user_value = state['user_input'].strip()
+            state["conversation_context"] == "awaiting_slot_input"
             
             # conversation_context가 설정되어 있으면 기존 intent와 slots 정보 유지
-            if state.get('conversation_context') == 'awaiting_slot_input':
+            if state.get('conversation_context') == 'awaiting_slot_input' or state.get("awaiting_slot"):
+                logger.info("재질문 응답으로 질문 생략")
                 if user_value:
                     if 'slots' not in state:
                         state['slots'] = {}
                     state['slots'][slot_name] = user_value
-                    print(f"✅ Updated slot '{slot_name}' with value: {user_value}")
-                    print(f"✅ Current slots: {state['slots']}")
+                    logger.info("Updated slot: %s", slot_name, "with value: %s", user_value)
+                    # print(f"✅ Updated slot '{slot_name}' with value: {user_value}")
+                    # print(f"✅ Current slots: {state['slots']}")
                 else:
-                    print(f"❌ Empty input for slot '{slot_name}'")
+                    logger.error("Empty input for slot: %s", slot_name)
 
         return state
 
@@ -148,7 +151,7 @@ class ExerciseSearchInfo(BaseNode):
         try:
             hits = self.tavily.invoke(query) or []
             state["search_results"] = hits[: self.top_k]
-            logger.info(f"Tavily search results {query}: %s", state["search_results"])
+            logger.info(f"Tavily search results {query}: %s")
         except Exception as exc:
             logger.exception("Tavily search failed: %s", exc)
             state["search_results"] = "검색 결과를 가져오는데 실패했습니다."
@@ -156,28 +159,33 @@ class ExerciseSearchInfo(BaseNode):
 
 # 스케줄 생성 노드 - 운동
 class ExerciseScheduleGenerator(BaseNode):
-    def run(state: ConversationState) -> dict:
+    def __init__(self):
+        self.chain = exercise_chain()
+
+    def __call__(self, state: ConversationState) -> dict:
         """검색 결과를 활용한 운동 스케줄 생성"""
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
         search_results = state.get('search_results', '검색 결과 없음')
-
-        print(f"Generating exercise schedule with search results")
+        logger.info("Generating exercise schedule with search results")
+        # print(f"Generating exercise schedule with search results")
 
         try:
-            raw_output = exercise_chain.invoke({
+            raw_output = self.chain.invoke({
                 "history": history,
                 "user_input": state['user_input'],
                 "slots": slots_json,
                 "search_results": search_results,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            print("Raw exercise chain output:", raw_output)
+            logger.info("Raw exercise chain output: %s", raw_output)
+            # print("Raw exercise chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            print(f"Error generating exercise schedule: {e}")
+            logger.error("Error generationg exerxise schedule: %s", e)
+            # print(f"Error generating exercise schedule: {e}")
             state['response'] = "운동 일정 생성 중 오류가 발생했습니다."
 
         return state
@@ -195,7 +203,6 @@ class LearningScheduleGenerator(BaseNode):
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
         # relevant_docs = state.get('relevant_docs') or '관련 문서 없음'
-
         # print(f"Generating learning schedule with RAG docs")
 
         try:
@@ -206,11 +213,13 @@ class LearningScheduleGenerator(BaseNode):
                 # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            print("Raw learning chain output:", raw_output)
+            logger.ingo("Generating learning schedule")
+            # print("Raw learning chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            print(f"Error generating learning schedule: {e}")
+            logger.error("Error generating Learning Schedule: %s", e)
+            # print(f"Error generating learning schedule: {e}")
             state['response'] = "학습 일정 생성 중 오류가 발생했습니다."
 
         return state
@@ -236,11 +245,13 @@ class ProjectScheduleGenerator(BaseNode):
                 # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            print("Raw Project chain output:", raw_output)
+            logger.ingo("Generating Project schedule")
+            # print("Raw Project chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            print(f"Error generating Project schedule: {e}")
+            logger.error("Error generating Project Schedule: %s", e)
+            # print(f"Error generating Project schedule: {e}")
             state['response'] = "프로젝트 일정 생성 중 오류가 발생했습니다."
 
         return state
@@ -262,11 +273,13 @@ class PlannerGenerator(BaseNode):
                 "slots": slots_json,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            print("Raw Planner chain output:", raw_output)
+            logger.info("Generating Planner schedule")
+            # print("Raw Planner chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            print(f"Error generating planner schedule: {e}")
+            logger.error("Error generating Planner Schedule: %s", e)
+            # print(f"Error generating planner schedule: {e}")
             state['response'] = "일반 일정 생성 중 오류가 발생했습니다."
 
         return state
@@ -277,7 +290,8 @@ class QaGenerator(BaseNode):
 
     def __call__(self, state: ConversationState) -> dict:
         history = "\n".join(state.get("history", []))
-        print(f"Handling general QA for user input: {state['user_input']}")
+        logger.info("Handling general QA for user input: %s", state['user_input'])
+        # print(f"Handling general QA for user input: {state['user_input']}")
 
         try:
             response_result = self.chain.invoke({
@@ -296,11 +310,13 @@ class QaGenerator(BaseNode):
                     state['response'] = str(response_result)
             else:
                 state['response'] = str(response_result)
-                
-            print("General QA response:", state['response'])
+            
+            logger.info("Generating QA response")
+            # print("General QA response:", state['response'])
             
         except Exception as e:
-            print(f"Error in general QA chain: {e}")
+            logger.error("Error in general QA chain: %s", e)
+            # print(f"Error in general QA chain: {e}")
             state['response'] = "일반적인 질문에 답변하는 중 오류가 발생했습니다."
 
         return state
