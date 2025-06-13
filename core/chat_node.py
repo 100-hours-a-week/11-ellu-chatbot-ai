@@ -248,7 +248,7 @@ class ProjectScheduleGenerator(BaseNode):
                 # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.ingo("프로젝트 일정을 생성합니다.")
+            logger.info("프로젝트 일정을 생성합니다.")
             # print("Raw Project chain output:", raw_output)
             state['response'] = raw_output
 
@@ -294,7 +294,7 @@ class QaGenerator(BaseNode):
 
     def __call__(self, state: ConversationState) -> dict:
         history = "\n".join(state.get("history", []))
-        # logger.info("일반 질의: %s", state['user_input'])
+        logger.info("일반 질의: %s", state['user_input'])
         # print(f"Handling general QA for user input: {state['user_input']}")
 
         try:
