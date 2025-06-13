@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, Header
 from fastapi.responses import StreamingResponse
 from schemas.chat_schema import ChatRequest
 from app.chat_controller import stream_chat
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ────────────────────────────────────────────────────────
 # 챗봇 라우터 설정
@@ -18,6 +22,7 @@ router = APIRouter()
 )
 async def chat_endpoint(req: ChatRequest):
     user_id = req.user_id
+    logger.info("챗봇 요청 수신하여 StreamingResponse 시작")
     return StreamingResponse(
         stream_chat(user_id=user_id, user_input=req.message, date=req.date),
         media_type="text/event-stream"
