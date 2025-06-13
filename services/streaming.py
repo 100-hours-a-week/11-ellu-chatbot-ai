@@ -1,6 +1,10 @@
 import asyncio
 from typing import Optional
 from services.conversation import conversation_service
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ────────────────────────────────────────────────────────
 # 스트리밍 응답
@@ -16,6 +20,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
 
     # 스케줄 생성 안내 (스케줄일 때만)
     if is_schedule:
+        logger.info("일정 생성 응답 Streaming 시작")
         yield {
             "message": "chatbot_response",
             "data": {
@@ -29,6 +34,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
         task_title = resp.get("task_title", "")
         category   = resp.get("category", "")
         for i, sub in enumerate(detail_list):
+            logger.debug(f"Subtask {i+1}: {sub}")
             yield {
                 "message": "chatbot_response",
                 "data": {
@@ -41,6 +47,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
             await asyncio.sleep(0.1)
 
         # 완료 메시지
+        logger.info("일정 생성 완료 메시지 전송")
         yield {
             "message": "chatbot_response",
             "data": {
@@ -51,6 +58,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
 
     # 일반 텍스트 응답 스트리밍
     else:
+        logger.info("일반 텍스트 응답 Streaming 시작")
         full_text = resp if isinstance(resp, str) else str(resp)
         tokens = full_text.split()
         for i, token in enumerate(tokens):
@@ -62,5 +70,6 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
                 }
             }
             await asyncio.sleep(0.05)
+        logger.info("일반 텍스트 응답 스트리밍 완료")
 
 
