@@ -111,17 +111,20 @@ class MissingSlotAsker(BaseNode):
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         cat = state.get("slots", {}).get("category", "")
+        logger.info("추출된 카테고리: %s", cat)
         cfg = self._CFG.get(cat)
         if not cfg:
             state.update(
                 ask=False,
                 response="죄송합니다. 활동 유형을 인식할 수 없습니다. 학습, 운동, 프로젝트 또는 반복 일정 중 하나를 알려주시겠어요?",
             )
-            print(f"인식불가 카테고리: {cat}")
+            logger.error("카테고리를 인식할 수 없습니다: %s", cat)
+            # print(f"인식불가 카테고리: {cat}")
             return state
 
         missing = [f for f in cfg["required"] if not state["slots"].get(f)]
-        print(f"Missing slots for category '{cat}': {missing}")
+        logger.info("누락된 슬롯: %s", missing)
+        # print(f"Missing slots for category '{cat}': {missing}")
         if missing:
             need = missing[0]
             state.update(
@@ -138,6 +141,7 @@ class MissingSlotAsker(BaseNode):
                 next_node=cfg["next_node"],
                 response="필요한 정보를 모두 확인했습니다. 일정을 생성합니다.",
             )
+            logger.info("슬롯이 모두 추출되었습니다.")
         return state
 
 # Tavily 검색 노드
@@ -151,7 +155,7 @@ class ExerciseSearchInfo(BaseNode):
         try:
             hits = self.tavily.invoke(query) or []
             state["search_results"] = hits[: self.top_k]
-            logger.info(f"Tavily search results {query}: %s")
+            logger.info("Tavily 검색 쿼리: %s", query)
         except Exception as exc:
             logger.exception("Tavily search failed: %s", exc)
             state["search_results"] = "검색 결과를 가져오는데 실패했습니다."
@@ -163,12 +167,11 @@ class ExerciseScheduleGenerator(BaseNode):
         self.chain = exercise_chain()
 
     def __call__(self, state: ConversationState) -> dict:
-        """검색 결과를 활용한 운동 스케줄 생성"""
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
         search_results = state.get('search_results', '검색 결과 없음')
-        logger.info("Generating exercise schedule with search results")
+        logger.info("검색 결과와 함께 운동 일정을 생성합니다.")
         # print(f"Generating exercise schedule with search results")
 
         try:
@@ -179,12 +182,12 @@ class ExerciseScheduleGenerator(BaseNode):
                 "search_results": search_results,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("Raw exercise chain output: %s", raw_output)
+            logger.info("운동 chain 실행 결과: %s", raw_output)
             # print("Raw exercise chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            logger.error("Error generationg exerxise schedule: %s", e)
+            logger.error("운동 일정 생성 중 오류가 발생했습니다.: %s", e)
             # print(f"Error generating exercise schedule: {e}")
             state['response'] = "운동 일정 생성 중 오류가 발생했습니다."
 
@@ -213,12 +216,12 @@ class LearningScheduleGenerator(BaseNode):
                 # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.ingo("Generating learning schedule")
+            logger.info("학습 일정을 생성합니다.")
             # print("Raw learning chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            logger.error("Error generating Learning Schedule: %s", e)
+            logger.error("학습 일정 생성 중 오류가 발생했습니다.: %s", e)
             # print(f"Error generating learning schedule: {e}")
             state['response'] = "학습 일정 생성 중 오류가 발생했습니다."
 
@@ -245,12 +248,12 @@ class ProjectScheduleGenerator(BaseNode):
                 # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.ingo("Generating Project schedule")
+            logger.ingo("프로젝트 일정을 생성합니다.")
             # print("Raw Project chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            logger.error("Error generating Project Schedule: %s", e)
+            logger.error("프로젝트 일정 생성 중 오류가 발생했습니다.: %s", e)
             # print(f"Error generating Project schedule: {e}")
             state['response'] = "프로젝트 일정 생성 중 오류가 발생했습니다."
 
@@ -273,16 +276,17 @@ class PlannerGenerator(BaseNode):
                 "slots": slots_json,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("Generating Planner schedule")
+            logger.info("일반 일정을 생성합니다.")
             # print("Raw Planner chain output:", raw_output)
             state['response'] = raw_output
 
         except Exception as e:
-            logger.error("Error generating Planner Schedule: %s", e)
+            logger.error("일반 일정 생성 중 오류가 발생했습니다: %s", e)
             # print(f"Error generating planner schedule: {e}")
             state['response'] = "일반 일정 생성 중 오류가 발생했습니다."
 
         return state
+    
 # 일반 QA 생성 노드
 class QaGenerator(BaseNode):
     def __init__(self):
@@ -290,7 +294,7 @@ class QaGenerator(BaseNode):
 
     def __call__(self, state: ConversationState) -> dict:
         history = "\n".join(state.get("history", []))
-        logger.info("Handling general QA for user input: %s", state['user_input'])
+        # logger.info("일반 질의: %s", state['user_input'])
         # print(f"Handling general QA for user input: {state['user_input']}")
 
         try:
@@ -311,12 +315,12 @@ class QaGenerator(BaseNode):
             else:
                 state['response'] = str(response_result)
             
-            logger.info("Generating QA response")
+            logger.info("일반 질의에 대해 답변합니다.")
             # print("General QA response:", state['response'])
             
         except Exception as e:
-            logger.error("Error in general QA chain: %s", e)
+            logger.error("일반 질의에 답변하는 중 오류가 발생했습니다.: %s", e)
             # print(f"Error in general QA chain: {e}")
-            state['response'] = "일반적인 질문에 답변하는 중 오류가 발생했습니다."
+            state['response'] = "일반 질의에 답변하는 중 오류가 발생했습니다."
 
         return state

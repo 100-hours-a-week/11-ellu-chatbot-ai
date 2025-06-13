@@ -35,8 +35,9 @@ class ConversationService:
         saved_resp = resp if isinstance(resp, str) else json.dumps(resp, ensure_ascii=False)
         memory.save_context({"user_input": user_input}, {"response": saved_resp})
         current_history = memory_manager.get_history(user_id)
-        logger.info("유저 아이디: %s", user_id)
-        logger.info("저장된 히스토리: %s", current_history)
+        # logger.info("유저 아이디: %s", user_id)
+        logger.info(f"{user_id} 히스토리 저장 성공")
+        # logger.info("저장된 히스토리: %s", current_history)
 
         self._last_states[user_id] = result
         return result

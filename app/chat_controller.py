@@ -1,11 +1,10 @@
 # app/controllers/chat_controller.py
 import asyncio
 import json
-import logging
 from typing import AsyncGenerator, Optional
 from datetime import datetime
-
 from services.streaming import stream_conversation
+import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ async def stream_chat(
             await asyncio.sleep(0.05)
 
     except Exception as e:
-        logger.error("stream_chat error:", exc_info=True)
+        logger.error("stream_chat 오류가 발생했습니다.:", exc_info=True)
         err_payload = {
             "message": "chatbot_response",
             "data": {"text": "오류가 발생했습니다.", "done": True}

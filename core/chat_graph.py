@@ -1,15 +1,19 @@
 from langgraph.graph import StateGraph, END
 from core.state import ConversationState
 from core.chat_node import DetectedIntent, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # 조건부 엣지 - intent에 따른 라우팅
 def route_on_intent(state: ConversationState) -> str:
     """감지된 intent에 따라 라우팅"""
     if state.get('conversation_context') == 'awaiting_slot_input':
+        logger.info("슬롯 대기 입력 상태")
         return "schedule"
-    
+
     if state.get('intent') == 'schedule':
         return "schedule"
     else:
