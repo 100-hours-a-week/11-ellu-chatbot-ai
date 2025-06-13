@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.chat_router import router
 
@@ -51,3 +52,9 @@ app.include_router(router, prefix="/ai", tags=["chats"])
 @app.get("/")
 async def root():
     return {"message": "Welcome to the Looper AI Scheduling Chatbot API!"}
+
+# Protmetheus 메트릭 엔드포인트
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
