@@ -1,0 +1,20 @@
+# Python
+__pycache__
+.idea/
+dist/
+build/
+
+# dotenv
+.env
+
+# Virtual Environments
+.venv
+
+# macOS
+.DS_Store
+
+# VScode
+.vscode
+
+# log
+*.log
