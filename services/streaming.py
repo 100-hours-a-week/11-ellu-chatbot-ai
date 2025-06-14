@@ -22,7 +22,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
     if is_schedule:
         logger.info("일정 생성 응답 Streaming 시작")
         yield {
-            "message": "chatbot_response",
+            "message": "chatbot_message",
             "data": {
                 "text": "⏳ 일정 생성 중입니다...",
                 "done": False
@@ -36,7 +36,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
         for i, sub in enumerate(detail_list):
             logger.debug(f"Subtask {i+1}: {sub}")
             yield {
-                "message": "chatbot_response",
+                "message": "task_response",
                 "data": {
                     "task_title": task_title,
                     "category": category,
@@ -49,7 +49,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
         # 완료 메시지
         logger.info("일정 생성 완료 메시지 전송")
         yield {
-            "message": "chatbot_response",
+            "message": "chatbot_message",
             "data": {
                 "text": "🗓️ 일정 생성이 완료되었습니다. 캘린더를 확인해주세요.",
                 "done": True
