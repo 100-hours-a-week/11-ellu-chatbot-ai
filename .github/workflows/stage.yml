@@ -9,7 +9,7 @@ env:
   REPOSITORY: looper
   SERVICE: chatbot-ai
   REGISTRY: asia-northeast3-docker.pkg.dev/capable-range-455705-h4/looper
-  IMAGE_NAME: ai-summary
+  IMAGE_NAME: chatbot-ai
   VERSION: ${{ github.sha }}
 
 jobs:
