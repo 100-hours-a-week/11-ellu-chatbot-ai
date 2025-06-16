@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 from core.chat_graph import chat_graph
+from core.chat_node import DetectedIntent, MissingSlotAsker
 from core.chat_history import memory_manager
 import logging
 
@@ -17,6 +18,24 @@ class ConversationService:
         self._last_states: Dict[str, Dict[str, Any]] = {}
         self._memory_manager = memory_manager
 
+    # intent & slot 누락 여부 확인
+    def preview(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
+        history = self._memory_manager.get_history(user_id)
+        last_state = self._last_states.get(user_id, {})
+        previous_slots = last_state.get("slots", {})
+
+        state: Dict[str, Any] = {
+            "user_input": user_input,
+            "history": history,
+            "date": date or datetime.now().isoformat(),
+            "slots": previous_slots,
+        }
+
+        # DetectedIntent → MissingSlotAsker 두 노드만 순차 호출
+        state = DetectedIntent()(state)
+        state = MissingSlotAsker()(state)
+        return state
+
 
     def run(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
         memory = memory_manager.get_user_memory(user_id)
@@ -24,28 +43,15 @@ class ConversationService:
         last_state = self._last_states.get(user_id, {})
         previous_slots = last_state.get('slots', {})
 
-        is_followup = (
-            last_state.get("conversation_state") == "awaiting_slot_input"
-            and last_state.get("awaiting_slot")
-        )
-
-        # slot 유지
-        if is_followup:
-            logger.info("이전 상태에서 이어받는 follow-up 대화입니다.")
-            state = self._last_states.copy()
-            state["user_input"] = user_input
-            state["history"] = history_list
-            state["date"] = date or datetime.now().isoformat()
-            state["slots"] = previous_slots
-        else:
-            state: Dict[str, Any] = {
+        state: Dict[str, Any] = {
                 "user_input": user_input,
                 "history": history_list,
                 "date": date or datetime.now().isoformat(),
                 "slots": previous_slots
-            }
+        }
 
         result = chat_graph.invoke(state)
+        self._last_states[user_id] = result
 
         resp = result.get("response")
         saved_resp = resp if isinstance(resp, str) else json.dumps(resp, ensure_ascii=False)
@@ -57,7 +63,6 @@ class ConversationService:
         # logger.info("유저 아이디: %s", user_id)
         # logger.info("저장된 히스토리: %s", current_history)
 
-        self._last_states[user_id] = result
         return result
 
 conversation_service = ConversationService()
