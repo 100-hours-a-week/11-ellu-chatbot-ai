@@ -4,8 +4,8 @@ import json
 from langchain_core.exceptions import OutputParserException
 from typing import Dict, Any, Optional
 from datetime import datetime
-from langchain_community.tools import TavilySearchResults
-from typing import TypedDict, List, Dict
+from langchain_tavily import TavilySearch
+from typing import Dict
 from core.state import ConversationState
 import logging
 
@@ -158,15 +158,16 @@ class MissingSlotAsker(BaseNode):
 
 # Tavily 검색 노드
 class ExerciseSearchInfo(BaseNode):
-    def __init__(self, tool: Optional[TavilySearchResults] = None, top_k: int = 5):
-        self.tavily = tool or TavilySearchResults()
+    def __init__(self, tool: Optional[TavilySearch] = None, top_k: int = 5):
+        self.tavily = tool or TavilySearch()
         self.top_k = top_k
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         query = state.get("task_title") or state["user_input"]
         try:
             hits = self.tavily.invoke(query) or []
-            state["search_results"] = hits[: self.top_k]
+            results = hits.get("result", [])
+            state["search_results"] = results[: self.top_k]
             logger.info("Tavily 검색 쿼리: %s", query)
         except Exception as exc:
             logger.exception("Tavily search failed: %s", exc)
