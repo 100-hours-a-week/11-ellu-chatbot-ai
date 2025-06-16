@@ -17,26 +17,44 @@ class ConversationService:
         self._last_states: Dict[str, Dict[str, Any]] = {}
         self._memory_manager = memory_manager
 
+
     def run(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
         memory = memory_manager.get_user_memory(user_id)
-        # mem_vars = memory.load_memory_variables({})
-        # history_str = mem_vars.get("history", "")
         history_list: list[str] = self._memory_manager.get_history(user_id)
+        last_state = self._last_states.get(user_id, {})
+        previous_slots = last_state.get('slots', {})
 
-        state: Dict[str, Any] = {
-            "user_input": user_input,
-            "history": history_list,
-            "date": date or datetime.now().isoformat(),
-        }
+        is_followup = (
+            last_state.get("conversation_state") == "awaiting_slot_input"
+            and last_state.get("awaiting_slot")
+        )
+
+        # slot 유지
+        if is_followup:
+            logger.info("이전 상태에서 이어받는 follow-up 대화입니다.")
+            state = self._last_states.copy()
+            state["user_input"] = user_input
+            state["history"] = history_list
+            state["date"] = date or datetime.now().isoformat()
+            state["slots"] = previous_slots
+        else:
+            state: Dict[str, Any] = {
+                "user_input": user_input,
+                "history": history_list,
+                "date": date or datetime.now().isoformat(),
+                "slots": previous_slots
+            }
 
         result = chat_graph.invoke(state)
 
         resp = result.get("response")
         saved_resp = resp if isinstance(resp, str) else json.dumps(resp, ensure_ascii=False)
         memory.save_context({"user_input": user_input}, {"response": saved_resp})
-        current_history = memory_manager.get_history(user_id)
-        # logger.info("유저 아이디: %s", user_id)
         logger.info(f"{user_id} 히스토리 저장 성공")
+
+        # 유저 히스토리 확인용
+        # current_history = memory_manager.get_history(user_id)
+        # logger.info("유저 아이디: %s", user_id)
         # logger.info("저장된 히스토리: %s", current_history)
 
         self._last_states[user_id] = result

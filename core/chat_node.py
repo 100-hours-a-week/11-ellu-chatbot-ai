@@ -61,32 +61,44 @@ class DetectedIntent(BaseNode):
         new_slots = parsed.get("slots", {})
 
         # 빈 문자열 필터링하여 병합
-        filtered_new_slots = {k: v for k, v in new_slots.items() if v != ""}
-        state["slots"] = {**prev_slots, **filtered_new_slots}
+        merged_slots = {
+            **prev_slots,
+            **{k: v for k, v in new_slots.items() if v}
+        }
+        state["slots"] = merged_slots
+        logger.info("병합된 슬롯: %s", merged_slots)
+        # filtered_new_slots = {k: v for k, v in new_slots.items() if v != ""}
+        # state["slots"] = {**prev_slots, **filtered_new_slots}
         logger.info('Intent=%s, Slots=%s', state['intent'], state['slots'])
         return state
 
 # 슬롯 업데이트 노드
 class SlotUpdater(BaseNode):
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        if state.get('awaiting_slot'):
-            slot_name = state['awaiting_slot']
-            user_value = state['user_input'].strip()
-            state["conversation_context"] == "awaiting_slot_input"
-            
-            # conversation_context가 설정되어 있으면 기존 intent와 slots 정보 유지
-            if state.get('conversation_context') == 'awaiting_slot_input' or state.get("awaiting_slot"):
-                logger.info("재질문 응답으로 질문 생략")
-                if user_value:
-                    if 'slots' not in state:
-                        state['slots'] = {}
-                    state['slots'][slot_name] = user_value
-                    logger.info("Updated slot: %s", slot_name, "with value: %s", user_value)
-                    # print(f"✅ Updated slot '{slot_name}' with value: {user_value}")
-                    # print(f"✅ Current slots: {state['slots']}")
-                else:
-                    logger.error("Empty input for slot: %s", slot_name)
+        if not state.get("awaiting_slot"):
+            return state
+        
+        # if state.get('awaiting_slot'):
+        slot_name = state['awaiting_slot']
+        user_value = state['user_input'].strip()
+        state["conversation_context"] == "awaiting_slot_input"
+        
+        # 기존 intent와 slots 정보 유지
+        if state.get('conversation_context') == 'awaiting_slot_input' or state.get("awaiting_slot"):
+            logger.info("재질문 응답으로 질문 생략")
+            if user_value:
+                # if 'slots' not in state:
+                #     state['slots'] = {}
+                state.setdefault("slots", {})
+                state['slots'][slot_name] = user_value
+                logger.info("Updated slot: %s with value %s", slot_name, user_value)
+                # print(f"✅ Updated slot '{slot_name}' with value: {user_value}")
+                # print(f"✅ Current slots: {state['slots']}")
+            else:
+                logger.error("Empty input for slot: %s", slot_name)
 
+        state["conversation_context"] = "slot_filled"
+        state["awaiting_slot"] = None
         return state
 
 # 누락된 슬롯 질문 노드
@@ -130,7 +142,7 @@ class MissingSlotAsker(BaseNode):
             state.update(
                 ask=True,
                 awaiting_slot=need,
-                conversation_context=None,
+                conversation_context="awating_slot_input",
                 response=self._QUESTIONS[need],
             )
         else:
