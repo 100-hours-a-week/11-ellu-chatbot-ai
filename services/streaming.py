@@ -71,12 +71,13 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
         # 완료 메시지
         logger.info("일정 생성 완료 메시지 전송")
         end_text = "🗓️ 일정 생성이 완료되었습니다. 캘린더를 확인해주세요."
-        for i, tok in enumerate(end_text.split()):
+        tokens = end_text.split()
+        for i, tok in enumerate(tokens):
             yield {
                 "message": "chatbot_message",
                 "data": {
                     "text": tok,
-                    "done": i == len(loading_text.split()) - 1
+                    "done": i == len(tokens) - 1
                 }
             }
 
