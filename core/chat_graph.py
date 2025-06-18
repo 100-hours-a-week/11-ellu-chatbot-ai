@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 from core.state import ConversationState
-from core.chat_node import DetectedIntent, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator
+from core.chat_node import DetectedIntent, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator, SlotUpdater
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +29,7 @@ class ChatGraphBuilder:
 
     def add_node(self):
         self.graph_builder.add_node("detect_intent_and_slots", DetectedIntent())
+        self.graph_builder.add_node("update_slot", SlotUpdater())
         self.graph_builder.add_node("ask_missing_slot", MissingSlotAsker()) 
         self.graph_builder.add_node("search_exercise_info", ExerciseSearchInfo())
         # graph_builder.add_node("retrieve_docs", retrieve_docs)
@@ -44,14 +45,27 @@ class ChatGraphBuilder:
         
     def add_conditional_edges(self):
         # intent에 따른 라우팅 설정
+        # self.graph_builder.add_conditional_edges(
+        #     "detect_intent_and_slots",
+        #     route_on_intent,
+        #     {
+        #         "schedule": "ask_missing_slot",
+        #         "general": "general_qa"
+        #     }
+        # )
+
         self.graph_builder.add_conditional_edges(
             "detect_intent_and_slots",
-            route_on_intent,
+            lambda st: "update_slot" if st.get("awaiting_slot") else (
+                "ask_missing_slot" if st.get("intent") == "schedule" else "general_qa"
+            ),
             {
-                "schedule": "ask_missing_slot",
-                "general": "general_qa"
+                "update_slot": "update_slot",
+                "ask_missing_slot": "ask_missing_slot",
+                "general_qa": "general_qa",
             }
         )
+
 
         # graph_builder.add_conditional_edges(
         #     "retrieve_docs",
@@ -90,6 +104,7 @@ class ChatGraphBuilder:
     def add_edge(self):
         # 검색 후 스케줄 생성으로 연결       
         self.graph_builder.add_edge("search_exercise_info", "generate_exercise_schedule")
+        self.graph_builder.add_edge("update_slot", "ask_missing_slot")
         # 종료 엣지
         self.graph_builder.add_edge("generate_exercise_schedule", END)
         self.graph_builder.add_edge("generate_learning_schedule", END)
