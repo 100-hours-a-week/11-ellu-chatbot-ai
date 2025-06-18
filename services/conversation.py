@@ -2,67 +2,81 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 from core.chat_graph import chat_graph
-from core.chat_node import DetectedIntent, MissingSlotAsker
-from core.chat_history import memory_manager
+from core.database import chat_history_service 
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ────────────────────────────────────────────────────────
-# 히스토리 저장 및 반환하여 챗봇 그래프 실행
-# ────────────────────────────────────────────────────────
 
 class ConversationService:
     def __init__(self):
-        self._last_states: Dict[str, Dict[str, Any]] = {}
-        self._memory_manager = memory_manager
+        self.chat_history = chat_history_service
 
-    # intent & slot 누락 여부 확인
-    def preview(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
-        history = self._memory_manager.get_history(user_id)
-        last_state = self._last_states.get(user_id, {})
-        previous_slots = last_state.get("slots", {})
-
+    async def preview(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
+        """Preview intent & slot detection without saving to database"""
+        context = await self.chat_history.get_conversation_context(user_id)
+        
         state: Dict[str, Any] = {
             "user_input": user_input,
-            "history": history,
+            "history": context["history"],
             "date": date or datetime.now().isoformat(),
-            "slots": previous_slots,
+            "slots": context["slots"],
+            "conversation_context": context.get("conversation_context"),
+            "awaiting_slot": context.get("awaiting_slot")
         }
 
-        # DetectedIntent → MissingSlotAsker 두 노드만 순차 호출
+        from core.chat_node import DetectedIntent, MissingSlotAsker
+        
         state = DetectedIntent()(state)
         state = MissingSlotAsker()(state)
         return state
 
-
-    def run(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
-        memory = memory_manager.get_user_memory(user_id)
-        history_list: list[str] = self._memory_manager.get_history(user_id)
-        last_state = self._last_states.get(user_id, {})
-        previous_slots = last_state.get('slots', {})
-
-        state: Dict[str, Any] = {
+    async def run(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
+        try:
+            context = await self.chat_history.get_conversation_context(user_id)
+            conversation_id = context["conversation_id"]
+            
+            await self.chat_history.save_message(
+                conversation_id, user_id, "USER", user_input
+            )
+            
+            state: Dict[str, Any] = {
                 "user_input": user_input,
-                "history": history_list,
+                "history": context["history"],
                 "date": date or datetime.now().isoformat(),
-                "slots": previous_slots
-        }
+                "slots": context["slots"],
+                "conversation_context": context.get("conversation_context"),
+                "awaiting_slot": context.get("awaiting_slot")
+            }
 
-        result = chat_graph.invoke(state)
-        self._last_states[user_id] = result
-
-        resp = result.get("response")
-        saved_resp = resp if isinstance(resp, str) else json.dumps(resp, ensure_ascii=False)
-        memory.save_context({"user_input": user_input}, {"response": saved_resp})
-        logger.info(f"{user_id} 히스토리 저장 성공")
-
-        # 유저 히스토리 확인용
-        # current_history = memory_manager.get_history(user_id)
-        # logger.info("유저 아이디: %s", user_id)
-        # logger.info("저장된 히스토리: %s", current_history)
-
-        return result
+            result = chat_graph.invoke(state)
+            
+            response = result.get("response")
+            response_text = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False)
+            
+            await self.chat_history.save_message(
+                conversation_id,
+                user_id, 
+                "ASSISTANT", 
+                response_text,
+                {
+                    "slots": result.get("slots", {}),
+                    "intent": result.get("intent"),
+                    "conversation_context": result.get("conversation_context"),
+                    "awaiting_slot": result.get("awaiting_slot")
+                }
+            )
+            
+            logger.info(f"Successfully processed conversation for user {user_id}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in conversation service for user {user_id}: {e}")
+            return {
+                "response": "죄송합니다. 오류가 발생했습니다. 다시 시도해 주세요.",
+                "intent": "general",
+                "slots": {}
+            }
 
 conversation_service = ConversationService()
