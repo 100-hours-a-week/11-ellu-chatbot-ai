@@ -8,29 +8,13 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ────────────────────────────────────────────────────────
+# 히스토리 저장 및 반환하여 챗봇 그래프 실행
+# ────────────────────────────────────────────────────────
 
 class ConversationService:
     def __init__(self):
         self.chat_history = chat_history_service
-
-    async def preview(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
-        """Preview intent & slot detection without saving to database"""
-        context = await self.chat_history.get_conversation_context(user_id)
-        
-        state: Dict[str, Any] = {
-            "user_input": user_input,
-            "history": context["history"],
-            "date": date or datetime.now().isoformat(),
-            "slots": context["slots"],
-            "conversation_context": context.get("conversation_context"),
-            "awaiting_slot": context.get("awaiting_slot")
-        }
-
-        from core.chat_node import DetectedIntent, MissingSlotAsker
-        
-        state = DetectedIntent()(state)
-        state = MissingSlotAsker()(state)
-        return state
 
     async def run(self, user_id: str, user_input: str, date: Optional[str] = None) -> Dict[str, Any]:
         try:
@@ -51,10 +35,9 @@ class ConversationService:
             }
 
             result = chat_graph.invoke(state)
-            
             response = result.get("response")
             response_text = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False)
-            
+
             await self.chat_history.save_message(
                 conversation_id,
                 user_id, 
@@ -80,3 +63,4 @@ class ConversationService:
             }
 
 conversation_service = ConversationService()
+
