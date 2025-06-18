@@ -195,9 +195,12 @@ class ExerciseScheduleGenerator(BaseNode):
                 "search_results": search_results,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("운동 chain 실행 결과: %s", raw_output)
+            logger.info("운동 일정 실행 결과: %s", raw_output)
             # print("Raw exercise chain output:", raw_output)
             state['response'] = raw_output
+            # 일정 생성 완료 후 슬롯 초기화
+            state["slots"] = {}
+            logger.info("운동 일정 생성 완료 후 슬롯을 초기화했습니다.")
 
         except Exception as e:
             logger.error("운동 일정 생성 중 오류가 발생했습니다.: %s", e)
@@ -230,8 +233,12 @@ class LearningScheduleGenerator(BaseNode):
                 "date": state['date'] or datetime.now().isoformat()
             })
             logger.info("학습 일정을 생성합니다.")
+            logger.info("학습 일정 생성 결과: %s", raw_output)
             # print("Raw learning chain output:", raw_output)
             state['response'] = raw_output
+            # 일정 생성 완료 후 슬롯 초기화
+            state["slots"] = {}
+            logger.info("학습 일정 생성 완료 후 슬롯을 초기화했습니다.")
 
         except Exception as e:
             logger.error("학습 일정 생성 중 오류가 발생했습니다.: %s", e)
@@ -262,8 +269,13 @@ class ProjectScheduleGenerator(BaseNode):
                 "date": state['date'] or datetime.now().isoformat()
             })
             logger.info("프로젝트 일정을 생성합니다.")
+            logger.info("프로젝트 일정 생성 결과: %s", raw_output)
+
             # print("Raw Project chain output:", raw_output)
             state['response'] = raw_output
+            # 일정 생성 완료 후 슬롯 초기화
+            state["slots"] = {}
+            logger.info("프로젝트 일정 생성 완료 후 슬롯을 초기화했습니다.")
 
         except Exception as e:
             logger.error("프로젝트 일정 생성 중 오류가 발생했습니다.: %s", e)
@@ -290,8 +302,12 @@ class PlannerGenerator(BaseNode):
                 "date": state['date'] or datetime.now().isoformat()
             })
             logger.info("일반 일정을 생성합니다.")
+            logger.info("일반 일정 생성 결과: %s", raw_output)
             # print("Raw Planner chain output:", raw_output)
             state['response'] = raw_output
+            # 일정 생성 완료 후 슬롯 초기화
+            state["slots"] = {}
+            logger.info("일반 일정 생성 완료 후 슬롯을 초기화했습니다.")
 
         except Exception as e:
             logger.error("일반 일정 생성 중 오류가 발생했습니다: %s", e)
@@ -329,6 +345,7 @@ class QaGenerator(BaseNode):
                 state['response'] = str(response_result)
             
             logger.info("일반 질의에 대해 답변합니다.")
+            logger.info("프로젝트 일정 생성 결과: %s", response_result)
             # print("General QA response:", state['response'])
             
         except Exception as e:
