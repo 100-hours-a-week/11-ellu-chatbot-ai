@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-
+from core.database import db_manager
 from app.chat_router import router
 
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +16,16 @@ app = FastAPI(
     description="챗봇 대화 및 일정 생성 엔드포인트",
     version="1.0"
 )
+
+@app.on_event("startup")
+async def startup():
+    await db_manager.init_pool()
+    logger.info("✅ Database pool initialized")
+
+@app.on_event("shutdown") 
+async def shutdown():
+    await db_manager.close_pool()
+    logger.info("✅ Database pool closed")
 
 # 전역 예외 핸들러 함수
 # 404 기본 에러 예외 처리

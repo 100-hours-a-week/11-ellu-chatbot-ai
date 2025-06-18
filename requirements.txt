@@ -8,6 +8,9 @@ langgraph
 fastapi
 uvicorn
 
+asyncpg==0.30.0
+asyncio-pool==0.6.0
+
 opentelemetry-api
 opentelemetry-sdk
 opentelemetry-distro
