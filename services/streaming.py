@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 async def stream_conversation(user_id: str, user_input: str, date: Optional[str] = None):
     # intent & slot 여부 확인
-    preview_state = conversation_service.preview(user_id, user_input, date)
+    preview_state = await conversation_service.preview(user_id, user_input, date)
 
     intent = preview_state.get("intent")
     ask    = preview_state.get("ask")
@@ -42,7 +42,7 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
             }
             await asyncio.sleep(0.1) 
 
-    result = conversation_service.run(user_id, user_input, date=date)
+    result = await conversation_service.run(user_id, user_input, date=date)
     resp = result.get("response")
 
     # 스케줄 생성 응답인지 판별
