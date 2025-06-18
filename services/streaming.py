@@ -11,12 +11,11 @@ logger = logging.getLogger(__name__)
 # ────────────────────────────────────────────────────────
 
 async def stream_conversation(user_id: str, user_input: str, date: Optional[str] = None):
-    # intent & slot 여부 확인
-    preview_state = conversation_service.preview(user_id, user_input, date)
-
-    intent = preview_state.get("intent")
-    ask    = preview_state.get("ask")
-    slots  = preview_state.get("slots", {})
+    result = conversation_service.run(user_id, user_input, date=date)
+    
+    intent = result.get("intent")
+    ask    = result.get("ask")
+    slots  = result.get("slots", {})
     category_cfg = {
         "learning":  ["period", "duration_minutes", "preferred_time"],
         "exercise":  ["period", "duration_minutes", "preferred_time"],
@@ -42,7 +41,6 @@ async def stream_conversation(user_id: str, user_input: str, date: Optional[str]
             }
             await asyncio.sleep(0.1) 
 
-    result = conversation_service.run(user_id, user_input, date=date)
     resp = result.get("response")
 
     # 스케줄 생성 응답인지 판별

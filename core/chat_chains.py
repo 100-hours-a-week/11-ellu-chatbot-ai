@@ -1,6 +1,6 @@
 from langchain.output_parsers import StructuredOutputParser
 from model.json_parsed import slot_parser, planner_parser, generate_parser
-from model.prompt_template import qa_prompt, exercise_prompt, unified_prompt, learning_prompt, planner_prompt, project_prompt
+from model.prompt_template import qa_prompt, exercise_prompt, unified_prompt, learning_prompt, planner_prompt, project_prompt, other_prompt, schedule_ask_prompt
 from model.chat_llm import llm
 
 # ────────────────────────────────────────────────────────
@@ -24,3 +24,9 @@ def project_chain() -> StructuredOutputParser:
 
 def planner_chain() -> StructuredOutputParser:
     return  planner_prompt | llm | planner_parser
+
+def other_chain() -> StructuredOutputParser:
+    return  other_prompt | llm | planner_parser
+
+def schedule_ask_chain() -> StructuredOutputParser:
+    return schedule_ask_prompt | llm | generate_parser
