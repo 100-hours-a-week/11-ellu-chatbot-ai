@@ -34,15 +34,28 @@ class DetectedIntent(BaseNode):
         self.chain = unified_slot_chain()
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        if state.get("conversation_context") == "awaiting_slot_input":
-            logger.info("재질문 응답")
-            return state
-
         history = "\n".join(state.get("history", []))
+        
+        # 현재 슬롯 대기 상태 정보 추가
+        awaiting_slot = state.get("awaiting_slot")
+        current_slots = state.get("slots", {})
+        
+        # 대화 컨텍스트 정보를 히스토리에 추가
+        context_info = ""
+        if current_slots:
+            context_info += f"\n[현재까지 수집된 일정 정보: {current_slots}]"
+        
+        if awaiting_slot:
+            context_info += f"\n[현재 상황: AI가 '{awaiting_slot}' 정보를 요청한 상태입니다.]"
+            # context_info += f"\n[중요: 사용자 입력이 이전 일정에 대한 슬롯 입력인지 새로운 일정 요청인지 판단하세요.]"
+            # context_info += f"\n[주의: AI가 슬롯을 요청한 후 사용자가 답변하는 경우, 이는 새로운 일정 요청이 아닌 슬롯 입력입니다.]"
+            # context_info += f"\n[슬롯 질문 예시: '하루에 몇 시간을 할애하실 수 있나요?', '선호하는 시간대가 언제인가요?', '목표하는 기간이 어떻게 되나요?']"
+        
+        enhanced_history = history + context_info
 
         try:
             raw_output = self.chain.invoke({
-                "history": history,
+                "history": enhanced_history,
                 "user_input": state["user_input"]
             })
             logger.info("User Info: %s", state["user_input"])
@@ -73,24 +86,27 @@ class DetectedIntent(BaseNode):
 # 슬롯 업데이트 노드
 class SlotUpdater(BaseNode):
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        # 기존 슬롯 업데이트 로직
+        # 슬롯 대기 상태가 아니면 그대로 반환
         if not state.get("awaiting_slot"):
             return state
         
-        # if state.get('awaiting_slot'):
+        # intent가 general인 경우 슬롯 업데이트를 건너뛰고 일반 응답으로 처리
+        if state.get("intent") == "general":
+            logger.info("일반 질의로 판단되어 슬롯 업데이트를 건너뜁니다: %s", state["user_input"])
+            state["conversation_context"] = "general_query"
+            state["ask"] = False
+            return state
+        
         slot_name = state['awaiting_slot']
         user_value = state['user_input'].strip()
-        state["conversation_context"] == "awaiting_slot_input"
         
-        # 기존 intent와 slots 정보 유지
-        if state.get('conversation_context') == 'awaiting_slot_input' or state.get("awaiting_slot"):
-            logger.info("재질문 응답")
-            if user_value:
-                state.setdefault("slots", {})
-                state['slots'][slot_name] = user_value
-                logger.info("Updated slot: %s with value %s", slot_name, user_value)
-            else:
-                logger.error("Empty input for slot: %s", slot_name)
+        # 슬롯 관련 입력으로 판단되는 경우에만 슬롯 업데이트
+        if user_value:
+            state.setdefault("slots", {})
+            state['slots'][slot_name] = user_value
+            logger.info("Updated slot: %s with value %s", slot_name, user_value)
+        else:
+            logger.error("Empty input for slot: %s", slot_name)
 
         state["conversation_context"] = "slot_filled"
         state["awaiting_slot"] = None
@@ -98,6 +114,9 @@ class SlotUpdater(BaseNode):
         state["ask"] = False
         # 슬롯이 채워졌으므로 intent를 schedule로 설정
         state["intent"] = "schedule"
+        # 기존 카테고리 유지 (새로운 카테고리로 덮어쓰지 않음)
+        if state.get("slots", {}).get("category"):
+            logger.info("기존 카테고리 유지: %s", state["slots"]["category"])
         logger.info("사용자 응답을 받았습니다. ask=False로 설정합니다.")
         logger.info("슬롯이 채워져서 intent를 schedule로 설정했습니다.")
         return state
@@ -124,6 +143,17 @@ class MissingSlotAsker(BaseNode):
     }
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        # 일반 질의인 경우 슬롯 질문을 건너뛰고 일반 응답으로 처리
+        if state.get("intent") == "general" or state.get("conversation_context") == "general_query":
+            logger.info("일반 질의로 판단되어 슬롯 질문을 건너뜁니다")
+            state.update(
+                ask=False,
+                awaiting_slot=None,
+                conversation_context="general_query",
+                next_node="qa_generator",
+            )
+            return state
+            
         cat = state.get("slots", {}).get("category", "")
         logger.info("추출된 카테고리: %s", cat)
         cfg = self._CFG.get(cat)
@@ -228,6 +258,8 @@ class LearningScheduleGenerator(BaseNode):
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
+        
+        logger.info("학습 일정 생성 - 병합된 슬롯 정보: %s", slots_dict)
 
         try:
             raw_output = self.chain.invoke({
@@ -391,7 +423,7 @@ class QaGenerator(BaseNode):
                 state['response'] = str(response_result)
             
             logger.info("일반 질의에 대해 답변합니다.")
-            logger.info("프로젝트 일정 생성 결과: %s", response_result)
+            logger.info("일반 질의 응답 결과: %s", response_result)
             
         except Exception as e:
             logger.error("일반 질의에 답변하는 중 오류가 발생했습니다.: %s", e)
