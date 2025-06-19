@@ -4,13 +4,17 @@ import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self):
         self.pool = None
-        self.db_url = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/looperdb_main_dev")
+        self.db_url = os.getenv("DATABASE_URL","postgresql://user:password@localhost:5432/looperdb_main_dev")
     
     async def init_pool(self):
         if not self.pool:
