@@ -8,9 +8,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ────────────────────────────────────────────────────────
-# 히스토리 저장 및 반환하여 챗봇 그래프 실행
-# ────────────────────────────────────────────────────────
 
 class ConversationService:
     def __init__(self):
