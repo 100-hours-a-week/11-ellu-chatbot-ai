@@ -22,30 +22,46 @@ unified_prompt = PromptTemplate(
 새로운 사용자 입력:
 {user_input}
 
+<중요한 분류 기준>
+1) 반드시 대화 기록(특히 직전 AI의 질문과 [현재까지 수집된 일정 정보])을 먼저 확인하세요.
+2) 만약 직전 AI의 질문이 아래와 같은 슬롯 질문(예: "하루에 몇 시간을 할애하실 수 있나요?", "목표하는 기간이 어떻게 되나요?", "선호하는 시간대가 언제인가요?" 등)이라면, 사용자의 답변은 새로운 일정 요청이 아니라 **기존 일정의 슬롯 정보 입력**입니다.
+3) 이 경우 [현재까지 수집된 일정 정보]에 있는 task_title, category 등 주요 정보를 그대로 유지하고, 사용자의 답변에 해당하는 슬롯 정보만 추가/업데이트하세요.
+4) 만약 사용자의 입력이 완전히 새로운 일정 요청(예: "운동 일정을 만들어줘", "새로운 프로젝트 계획을 세워줘" 등)이라면, intent는 schedule로 하고 새로운 task_title, category를 생성하세요.
+5) 인사말, 감사, 일반적인 질문 등은 intent를 general로 분류하세요.
+
+<실행 규칙>
+- 슬롯 입력(직전 AI가 슬롯 질문 → 사용자가 답변): [현재까지 수집된 일정 정보]의 task_title, category, period 등 주요 정보는 반드시 유지, 새로운 정보만 추가/업데이트
+- 새로운 일정 요청: 새로운 task_title, category 생성
+- 일반 질의: intent를 general로 분류, 슬롯 정보는 비움
+
 1) intent: 이 입력이 일정 계획 요청(schedule)인지 일반 질문(general)인지 분류하세요.
+   - schedule: 일정 생성, 계획, 스케줄링과 관련된 요청 또는 이전 일정에 대한 슬롯 정보 입력
+   - general: 인사말, 감사 표현, 일반적인 질문, 일정과 무관한 대화
 
 2) schedule일 경우, 다음 슬롯을 JSON 형태로 '사용자 입력'의 정보를 바탕으로 추출하세요.
    정보가 없는 슬롯은 비워두세요.:
    - task_title: 요청된 메인 테스크(기간(예: 한달, 월요일) 등은 제외하고 메인 테스크만 간략하게 작성하세요.)
-   - period: 기간(예: 3일)
+   - period: 기간(예: 3일, 일주일, 한달 등)
    - duration_minutes: 하루 예상 소요 시간(예: 1시간), 시작 및 종료 시간(예: 09:00-10:00)
    - preferred_time: 선호 시간대
    - deadline: 마감일(YYYY-MM-DD)
    - work_hours: 업무시간(HH:MM-HH:MM)
    - frequency (recurring): 반복 주기(예: 매일, 매주 월요일)
    - start_end_time: 시작 시간-종료 시간(예: 09:00-10:00)
-   - category: 
+   - category:
     <활동 유형>
     (1) learning: 세부 공부, 학습 일정 생성 및 추천과 관련된 요청
     (2) exercise: 세부 운동 일정 생성 및 추천과 관련된 요청
     (3) project: 프로젝트 일정 생성 및 추천과 관련된 요청
     (4) recurring: 반복되는 일정 생성 요청 (예: 매주 수요일 미팅, 매주 공부 등)
-    (5) personal: 일반 개인 일정 생성과 관련된 요청(예: 6월 3일 약속, 다음주 수요일 운동 등)
+    (5) personal: 단일적인 일반 개인 일정 생성과 관련된 요청(예: 6월 3일 약속, 다음주 수요일 운동 등)
+    (6) other: 어느 활동 유형에도 포함되지 않은 일정 생성 및 추천과 관련된 요청
     <주의사항>
-    - 세부적인 일정 생성 및 추천을 요청하는 경우에는 recurring로 설정되어서는 안됩니다.
+    - 세부적인 일정 생성, 계획 및 추천을 요청하는 경우에는 recurring, personal로 설정되어서는 안됩니다.
     - 반복여부를 판단하여 반복일 경우 반드시 category가 recurring로 설정되어야 합니다.
     - category는 반드시 위 5가지 중 하나로 설정되어야 합니다.
     - 세부적인 테스크 생성을 요청하는 경우가 아니라면 personal로 설정해야 합니다.
+    - 일정 추천 요청일 때 어느 활동 유형에도 포함되지 않은 요청은 other로 설정해야 합니다.
 
 아래 JSON 형식을 **반드시** 지켜서 응답하세요.
 {format_instructions}
@@ -66,13 +82,41 @@ unified_prompt = PromptTemplate(
 """
 )
 
+# 스케줄 생성 시 필요한 부분 재질문 프롬프트
+schedule_ask_prompt = PromptTemplate(
+    input_variables=["history", "user_input", "date"],
+    partial_variables={"generate_parser": generate_format_instructions},
+    template="""
+당신은 스케줄 생성 전문가입니다.
+사용자의 대화 기록과 요청을 확인하여 일정 생성에 필요한 추가적인 질문을 JSON 형식으로 답변해주세요.
+
+대화 기록:
+{history}
+
+사용자:
+{user_input}
+
+현재 시간:
+{date}
+
+예시1:
+사용자: 일본 여행을 계획중인데 일정을 생성해주세요.
+응답1: 여행 일정은 언제로 계획되어 있나요?
+응답2: 정확한 지역을 말씀해주시면 세부적인 일정 추천이 가능합니다.
+
+아래 JSON 형식을 **반드시** 지켜서 응답하세요.
+{generate_parser}
+"""
+)
+
 # 일반 질문 프롬프트
 qa_prompt = PromptTemplate(
     input_variables=["history", "user_input", "date"],
     partial_variables={"generate_parser": generate_format_instructions},
     template="""
-당신은 친절한 AI 비서입니다.
+당신은 Looper 서비스의 친절한 AI 챗봇입니다.
 아래의 사용자의 대화 기록과 입력 정보를 확인하고 JSON 형식으로 답변해주세요.
+이전 대화 기록을 참고하되, 일정 생성과 관련하여 '완료되었습니다, 추가하겠습니다' 등과 같은 단어는 포함하지 말아주세요.
 
 대화 기록:
 {history}
@@ -105,6 +149,8 @@ exercise_prompt = PromptTemplate(
 - 각 subtask당 실행 시간은 실제 시행이 가능한 시간으로 고려하여 최소 30분 이상, 모든 시간은 30분, 1시간 단위로 생성하세요.
 - 기간을 고려하여 모든 일정을 적절히 배분하여 출력해주세요. 압축하지 말고 모든 일자를 출력해주세요. 
   (예: 6/12부터 한달동안 운동 계획을 세우는 경우 일주일에 3번 정도로 배분하여 7/12까지, 한달간의 모든 계획을 세워야 합니다.)
+- 사용자가 "없어", "없음", "모르겠어" 등으로 응답한 슬롯이 있다면, 해당 항목에 대해 적절한 기본값이나 일반적인 옵션을 선택하여 일정을 생성하세요.
+  (예: duration_minutes가 "없어"인 경우 "1시간", preferred_time가 "없어"인 경우 "오전" 등)
 
 슬롯 정보:
 {slots}
@@ -159,6 +205,8 @@ learning_prompt = PromptTemplate(
 - 각 subtask당 실행 시간은 실제 시행이 가능한 시간으로 고려하여 최소 30분 이상, 모든 시간은 30분, 1시간 단위로 생성하세요.
 - 기간을 고려하여 모든 일정을 적절히 배분하여 출력해주세요. 압축하지 말고 모든 일자를 출력해야 합니다. 
   (예: 6/12부터 한달동안 운동 계획을 세우는 경우 일주일에 3번 정도로 배분하여 7/12까지, 한달간의 모든 계획을 세워야 합니다.)
+- 사용자가 "없어", "없음", "모르겠어" 등으로 응답한 슬롯이 있다면, 해당 항목에 대해 적절한 기본값이나 일반적인 옵션을 선택하여 일정을 생성하세요.
+  (예: duration_minutes가 "없어"인 경우 "1시간", preferred_time가 "없어"인 경우 "오전" 등)
 
 슬롯 정보:
 {slots}
@@ -207,6 +255,8 @@ project_prompt = PromptTemplate(
 - 각 subtask당 실행 시간은 실제 시행이 가능한 시간으로 고려하여 최소 30분 이상, 모든 시간은 30분, 1시간 단위로 생성하세요.
 - 기간을 고려하여 모든 일정을 적절히 배분하여 출력해주세요. 압축하지 말고 모든 일자를 출력해주세요. 
   (예: 6/12부터 한달동안 운동 계획을 세우는 경우 일주일에 3번 정도로 배분하여 7/12까지, 한달간의 모든 계획을 세워야 합니다.)
+- 사용자가 "없어", "없음", "모르겠어" 등으로 응답한 슬롯이 있다면, 해당 항목에 대해 적절한 기본값이나 일반적인 옵션을 선택하여 일정을 생성하세요.
+  (예: duration_minutes가 "없어"인 경우 "1시간", preferred_time가 "없어"인 경우 "오전" 등)
 
 슬롯 정보:
 {slots}
@@ -250,7 +300,13 @@ planner_prompt = PromptTemplate(
 
 아래 슬롯 정보와 현재 시간을 바탕으로 스케줄을 구체적으로 생성하세요.
 사용자 요청과 슬롯 정보를 기반으로 반복되는 일정 혹은 일반적인 일정을 생성합니다.
-추가적인 sub_task는 task_title과 동일하게 설정합니다.:
+추가적인 sub_task는 task_title과 동일하게 설정합니다.
+
+<조건>
+- 사용자가 "없어", "없음", "모르겠어" 등으로 응답한 슬롯이 있다면, 해당 항목에 대해 적절한 기본값이나 일반적인 옵션을 선택하여 일정을 생성하세요.
+  (예: duration_minutes가 "없어"인 경우 "1시간", preferred_time가 "없어"인 경우 "오전" 등)
+
+슬롯 정보:
 {slots}
 
 현재 시간: 
@@ -271,6 +327,49 @@ planner_prompt = PromptTemplate(
     }}
   ],
   "category": "personal"
+}}```
+"""
+)
+
+# 위 유형 외 일정 생성 프롬프트
+other_prompt = PromptTemplate(
+    input_variables=["history", "user_input", "slots", "date"],
+    partial_variables={"format_instructions": planner_format_instructions},
+    template="""
+대화 기록:
+{history}
+
+사용자 요청: 
+{user_input}
+
+아래 슬롯 정보와 현재 시간을 바탕으로 스케줄을 구체적으로 생성하세요.
+사용자 요청과 슬롯 정보를 기반으로 실제 시행 가능한 일정으로 생성하세요.
+
+<조건>
+- 사용자가 "없어", "없음", "모르겠어" 등으로 응답한 슬롯이 있다면, 해당 항목에 대해 적절한 기본값이나 일반적인 옵션을 선택하여 일정을 생성하세요.
+  (예: duration_minutes가 "없어"인 경우 "1시간", preferred_time가 "없어"인 경우 "오전" 등)
+
+슬롯 정보:
+{slots}
+
+현재 시간: 
+{date}
+
+아래 JSON 형식을 **반드시** 지켜서 응답하세요.
+{format_instructions}
+
+예시:
+```json
+{{
+  "task_title": "일본 여행 계획",
+  "detail": [
+    {{
+      "subtasks": "공항 도착",
+      "start_time": "2025-04-21T09:00:00",
+      "end_time": "2025-04-21T10:00:00"
+    }}
+  ],
+  "category": "other"
 }}```
 """
 )

@@ -10,6 +10,7 @@ uvicorn
 
 asyncpg==0.30.0
 asyncio-pool==0.6.0
+python-dotenv
 
 opentelemetry-api
 opentelemetry-sdk

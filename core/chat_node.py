@@ -1,4 +1,4 @@
-from core.chat_chains import unified_slot_chain, qa_chain, exercise_chain, learning_chain, project_chain, planner_chain
+from core.chat_chains import unified_slot_chain, qa_chain, exercise_chain, learning_chain, project_chain, planner_chain, other_chain, schedule_ask_chain
 from langchain_core.exceptions import OutputParserException
 import json
 from langchain_core.exceptions import OutputParserException
@@ -34,15 +34,28 @@ class DetectedIntent(BaseNode):
         self.chain = unified_slot_chain()
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        if state.get("conversation_context") == "awaiting_slot_input":
-            logger.info("재질문 응답으로 질문 생략")
-            return state
-
         history = "\n".join(state.get("history", []))
+        
+        # 현재 슬롯 대기 상태 정보 추가
+        awaiting_slot = state.get("awaiting_slot")
+        current_slots = state.get("slots", {})
+        
+        # 대화 컨텍스트 정보를 히스토리에 추가
+        context_info = ""
+        if current_slots:
+            context_info += f"\n[현재까지 수집된 일정 정보: {current_slots}]"
+        
+        if awaiting_slot:
+            context_info += f"\n[현재 상황: AI가 '{awaiting_slot}' 정보를 요청한 상태입니다.]"
+            # context_info += f"\n[중요: 사용자 입력이 이전 일정에 대한 슬롯 입력인지 새로운 일정 요청인지 판단하세요.]"
+            # context_info += f"\n[주의: AI가 슬롯을 요청한 후 사용자가 답변하는 경우, 이는 새로운 일정 요청이 아닌 슬롯 입력입니다.]"
+            # context_info += f"\n[슬롯 질문 예시: '하루에 몇 시간을 할애하실 수 있나요?', '선호하는 시간대가 언제인가요?', '목표하는 기간이 어떻게 되나요?']"
+        
+        enhanced_history = history + context_info
 
         try:
             raw_output = self.chain.invoke({
-                "history": history,
+                "history": enhanced_history,
                 "user_input": state["user_input"]
             })
             logger.info("User Info: %s", state["user_input"])
@@ -67,38 +80,45 @@ class DetectedIntent(BaseNode):
         }
         state["slots"] = merged_slots
         logger.info("병합된 슬롯: %s", merged_slots)
-        # filtered_new_slots = {k: v for k, v in new_slots.items() if v != ""}
-        # state["slots"] = {**prev_slots, **filtered_new_slots}
         logger.info('Intent=%s, Slots=%s', state['intent'], state['slots'])
         return state
 
 # 슬롯 업데이트 노드
 class SlotUpdater(BaseNode):
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        # 슬롯 대기 상태가 아니면 그대로 반환
         if not state.get("awaiting_slot"):
             return state
         
-        # if state.get('awaiting_slot'):
+        # intent가 general인 경우 슬롯 업데이트를 건너뛰고 일반 응답으로 처리
+        if state.get("intent") == "general":
+            logger.info("일반 질의로 판단되어 슬롯 업데이트를 건너뜁니다: %s", state["user_input"])
+            state["conversation_context"] = "general_query"
+            state["ask"] = False
+            return state
+        
         slot_name = state['awaiting_slot']
         user_value = state['user_input'].strip()
-        state["conversation_context"] == "awaiting_slot_input"
         
-        # 기존 intent와 slots 정보 유지
-        if state.get('conversation_context') == 'awaiting_slot_input' or state.get("awaiting_slot"):
-            logger.info("재질문 응답으로 질문 생략")
-            if user_value:
-                # if 'slots' not in state:
-                #     state['slots'] = {}
-                state.setdefault("slots", {})
-                state['slots'][slot_name] = user_value
-                logger.info("Updated slot: %s with value %s", slot_name, user_value)
-                # print(f"✅ Updated slot '{slot_name}' with value: {user_value}")
-                # print(f"✅ Current slots: {state['slots']}")
-            else:
-                logger.error("Empty input for slot: %s", slot_name)
+        # 슬롯 관련 입력으로 판단되는 경우에만 슬롯 업데이트
+        if user_value:
+            state.setdefault("slots", {})
+            state['slots'][slot_name] = user_value
+            logger.info("Updated slot: %s with value %s", slot_name, user_value)
+        else:
+            logger.error("Empty input for slot: %s", slot_name)
 
         state["conversation_context"] = "slot_filled"
         state["awaiting_slot"] = None
+        # 사용자 응답을 받았으므로 ask 상태를 False로 설정
+        state["ask"] = False
+        # 슬롯이 채워졌으므로 intent를 schedule로 설정
+        state["intent"] = "schedule"
+        # 기존 카테고리 유지 (새로운 카테고리로 덮어쓰지 않음)
+        if state.get("slots", {}).get("category"):
+            logger.info("기존 카테고리 유지: %s", state["slots"]["category"])
+        logger.info("사용자 응답을 받았습니다. ask=False로 설정합니다.")
+        logger.info("슬롯이 채워져서 intent를 schedule로 설정했습니다.")
         return state
 
 # 누락된 슬롯 질문 노드
@@ -109,6 +129,7 @@ class MissingSlotAsker(BaseNode):
         "project": dict(required=["deadline", "work_hours"], next_node="schedule_generator"),
         "recurring": dict(required=["start_end_time", "frequency"], next_node="schedule_generator"),
         "personal": dict(required=["start_end_time"], next_node="schedule_generator"),
+        "other": dict(required=[], next_node="schedule_ask"),
     }
 
     _QUESTIONS = {
@@ -122,6 +143,17 @@ class MissingSlotAsker(BaseNode):
     }
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        # 일반 질의인 경우 슬롯 질문을 건너뛰고 일반 응답으로 처리
+        if state.get("intent") == "general" or state.get("conversation_context") == "general_query":
+            logger.info("일반 질의로 판단되어 슬롯 질문을 건너뜁니다")
+            state.update(
+                ask=False,
+                awaiting_slot=None,
+                conversation_context="general_query",
+                next_node="qa_generator",
+            )
+            return state
+            
         cat = state.get("slots", {}).get("category", "")
         logger.info("추출된 카테고리: %s", cat)
         cfg = self._CFG.get(cat)
@@ -131,12 +163,21 @@ class MissingSlotAsker(BaseNode):
                 response="죄송합니다. 활동 유형을 인식할 수 없습니다. 학습, 운동, 프로젝트 또는 반복 일정 중 하나를 알려주시겠어요?",
             )
             logger.error("카테고리를 인식할 수 없습니다: %s", cat)
-            # print(f"인식불가 카테고리: {cat}")
+            return state
+
+        # other 카테고리는 특별 처리
+        if cat == "other":
+            state.update(
+                ask=False,
+                awaiting_slot=None,
+                conversation_context="other_category",
+                next_node="schedule_ask",
+            )
+            logger.info("other 카테고리 처리: schedule_ask로 이동")
             return state
 
         missing = [f for f in cfg["required"] if not state["slots"].get(f)]
         logger.info("누락된 슬롯: %s", missing)
-        # print(f"Missing slots for category '{cat}': {missing}")
         if missing:
             need = missing[0]
             state.update(
@@ -151,7 +192,6 @@ class MissingSlotAsker(BaseNode):
                 awaiting_slot=None,
                 conversation_context="awaiting_slot_input",
                 next_node=cfg["next_node"],
-                response="필요한 정보를 모두 확인했습니다. 일정을 생성합니다.",
             )
             logger.info("슬롯이 모두 추출되었습니다.")
         return state
@@ -185,7 +225,6 @@ class ExerciseScheduleGenerator(BaseNode):
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
         search_results = state.get('search_results', '검색 결과 없음')
         logger.info("검색 결과와 함께 운동 일정을 생성합니다.")
-        # print(f"Generating exercise schedule with search results")
 
         try:
             raw_output = self.chain.invoke({
@@ -196,7 +235,6 @@ class ExerciseScheduleGenerator(BaseNode):
                 "date": state['date'] or datetime.now().isoformat()
             })
             logger.info("운동 일정 실행 결과: %s", raw_output)
-            # print("Raw exercise chain output:", raw_output)
             state['response'] = raw_output
             # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
@@ -204,7 +242,6 @@ class ExerciseScheduleGenerator(BaseNode):
 
         except Exception as e:
             logger.error("운동 일정 생성 중 오류가 발생했습니다.: %s", e)
-            # print(f"Error generating exercise schedule: {e}")
             state['response'] = "운동 일정 생성 중 오류가 발생했습니다."
 
         return state
@@ -221,8 +258,8 @@ class LearningScheduleGenerator(BaseNode):
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-        # relevant_docs = state.get('relevant_docs') or '관련 문서 없음'
-        # print(f"Generating learning schedule with RAG docs")
+        
+        logger.info("학습 일정 생성 - 병합된 슬롯 정보: %s", slots_dict)
 
         try:
             raw_output = self.chain.invoke({
@@ -234,7 +271,6 @@ class LearningScheduleGenerator(BaseNode):
             })
             logger.info("학습 일정을 생성합니다.")
             logger.info("학습 일정 생성 결과: %s", raw_output)
-            # print("Raw learning chain output:", raw_output)
             state['response'] = raw_output
             # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
@@ -242,7 +278,6 @@ class LearningScheduleGenerator(BaseNode):
 
         except Exception as e:
             logger.error("학습 일정 생성 중 오류가 발생했습니다.: %s", e)
-            # print(f"Error generating learning schedule: {e}")
             state['response'] = "학습 일정 생성 중 오류가 발생했습니다."
 
         return state
@@ -256,22 +291,17 @@ class ProjectScheduleGenerator(BaseNode):
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-        # relevant_docs = state.get('relevant_docs') or '관련 문서 없음'
-
-        # print(f"Generating project schedule with RAG docs")
 
         try:
             raw_output = self.chain.invoke({
                 "history": history,
                 "user_input": state['user_input'],
                 "slots": slots_json,
-                # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
             logger.info("프로젝트 일정을 생성합니다.")
             logger.info("프로젝트 일정 생성 결과: %s", raw_output)
 
-            # print("Raw Project chain output:", raw_output)
             state['response'] = raw_output
             # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
@@ -279,7 +309,6 @@ class ProjectScheduleGenerator(BaseNode):
 
         except Exception as e:
             logger.error("프로젝트 일정 생성 중 오류가 발생했습니다.: %s", e)
-            # print(f"Error generating Project schedule: {e}")
             state['response'] = "프로젝트 일정 생성 중 오류가 발생했습니다."
 
         return state
@@ -301,18 +330,68 @@ class PlannerGenerator(BaseNode):
                 "slots": slots_json,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("일반 일정을 생성합니다.")
-            logger.info("일반 일정 생성 결과: %s", raw_output)
-            # print("Raw Planner chain output:", raw_output)
+            logger.info("반복 및 개인 일정을 생성합니다.")
+            logger.info("반복 및 개인 일정을 생성 결과: %s", raw_output)
             state['response'] = raw_output
             # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
-            logger.info("일반 일정 생성 완료 후 슬롯을 초기화했습니다.")
+            logger.info("반복 및 개인 일정 생성 완료 후 슬롯을 초기화했습니다.")
 
         except Exception as e:
-            logger.error("일반 일정 생성 중 오류가 발생했습니다: %s", e)
-            # print(f"Error generating planner schedule: {e}")
-            state['response'] = "일반 일정 생성 중 오류가 발생했습니다."
+            logger.error("반복 및 개인 일정 생성 중 오류가 발생했습니다: %s", e)
+            state['response'] = "반복 및 개인 일정 생성 중 오류가 발생했습니다."
+
+        return state
+    
+class ScheduleAsk(BaseNode):
+    def __init__(self):
+        self.chain = schedule_ask_chain()
+
+    def __call__(self, state: ConversationState) -> dict:
+        history = "\n".join(state.get("history", []))
+        try:
+            raw_output = self.chain.invoke({
+                "history": history,
+                "user_input": state['user_input'],
+                "date": state['date'] or datetime.now().isoformat()
+            })
+            logger.info("기타 유형에 대한 재질문: %s", raw_output)
+            state['response'] = raw_output
+            # 사용자 응답을 기다리도록 ask 상태 설정
+            state['ask'] = True
+            logger.info("사용자 응답을 기다립니다.")
+
+        except Exception as e:
+            logger.error("기타 유형에 대한 재질문 중 오류가 발생했습니다: %s", e)
+            state['response'] = "기타 유형에 대한 재질문 중 오류가 발생했습니다."
+
+        return state
+    
+class OtherGenerator(BaseNode):
+    def __init__(self):
+        self.chain = other_chain()
+
+    def __call__(self, state: ConversationState) -> dict:
+        history = "\n".join(state.get("history", []))
+        slots_dict = state.get('slots', {})
+        slots_json = json.dumps(slots_dict, ensure_ascii=False)
+
+        try:
+            raw_output = self.chain.invoke({
+                "history": history,
+                "user_input": state['user_input'],
+                "slots": slots_json,
+                "date": state['date'] or datetime.now().isoformat()
+            })
+            logger.info("기타 유형에 대한 일정 생성 결과: %s", raw_output)
+            state['response'] = raw_output
+            # 일정 생성 완료 후 슬롯 초기화
+            state["slots"] = {}
+            logger.info("기타 유형에 대한 일정 생성 완료 후 슬롯을 초기화했습니다.")
+
+        except Exception as e:
+            logger.error("기타 유형에 대한 일정 생성 중 오류가 발생했습니다: %s", e)
+            state['response'] = "기타 유형에 대한 일정 생성 중 오류가 발생했습니다."
 
         return state
     
@@ -324,7 +403,6 @@ class QaGenerator(BaseNode):
     def __call__(self, state: ConversationState) -> dict:
         history = "\n".join(state.get("history", []))
         logger.info("일반 질의: %s", state['user_input'])
-        # print(f"Handling general QA for user input: {state['user_input']}")
 
         try:
             response_result = self.chain.invoke({
@@ -345,12 +423,10 @@ class QaGenerator(BaseNode):
                 state['response'] = str(response_result)
             
             logger.info("일반 질의에 대해 답변합니다.")
-            logger.info("프로젝트 일정 생성 결과: %s", response_result)
-            # print("General QA response:", state['response'])
+            logger.info("일반 질의 응답 결과: %s", response_result)
             
         except Exception as e:
             logger.error("일반 질의에 답변하는 중 오류가 발생했습니다.: %s", e)
-            # print(f"Error in general QA chain: {e}")
             state['response'] = "일반 질의에 답변하는 중 오류가 발생했습니다."
 
         return state
