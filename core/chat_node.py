@@ -8,6 +8,7 @@ from langchain_tavily import TavilySearch
 from typing import Dict
 from core.state import ConversationState
 import logging
+from langgraph.config import get_stream_writer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -219,13 +220,15 @@ class ExerciseScheduleGenerator(BaseNode):
     def __init__(self):
         self.chain = exercise_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
         search_results = state.get('search_results', '검색 결과 없음')
         logger.info("검색 결과와 함께 운동 일정을 생성합니다.")
-
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -236,14 +239,11 @@ class ExerciseScheduleGenerator(BaseNode):
             })
             logger.info("운동 일정 실행 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("운동 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("운동 일정 생성 중 오류가 발생했습니다.: %s", e)
             state['response'] = "운동 일정 생성 중 오류가 발생했습니다."
-
         return state
     
     def _extra_payload(self, state):
@@ -254,32 +254,29 @@ class LearningScheduleGenerator(BaseNode):
     def __init__(self):
         self.chain = learning_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-        
         logger.info("학습 일정 생성 - 병합된 슬롯 정보: %s", slots_dict)
-
         try:
             raw_output = self.chain.invoke({
                 "history": history,
                 "user_input": state['user_input'],
                 "slots": slots_json,
-                # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
             logger.info("학습 일정을 생성합니다.")
             logger.info("학습 일정 생성 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("학습 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("학습 일정 생성 중 오류가 발생했습니다.: %s", e)
             state['response'] = "학습 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 # 스케줄 생성 노드 - 프로젝트
@@ -287,11 +284,14 @@ class ProjectScheduleGenerator(BaseNode):
     def __init__(self):
         self.chain = project_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-
+        logger.info("프로젝트 일정을 생성합니다.")
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -299,18 +299,13 @@ class ProjectScheduleGenerator(BaseNode):
                 "slots": slots_json,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("프로젝트 일정을 생성합니다.")
             logger.info("프로젝트 일정 생성 결과: %s", raw_output)
-
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("프로젝트 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("프로젝트 일정 생성 중 오류가 발생했습니다.: %s", e)
             state['response'] = "프로젝트 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 # 스케줄 생성 노드 - 반복, 개인 일정
@@ -318,11 +313,14 @@ class PlannerGenerator(BaseNode):
     def __init__(self):
         self.chain = planner_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-
+        logger.info("반복 및 개인 일정을 생성합니다.")
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -330,17 +328,13 @@ class PlannerGenerator(BaseNode):
                 "slots": slots_json,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("반복 및 개인 일정을 생성합니다.")
             logger.info("반복 및 개인 일정을 생성 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("반복 및 개인 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("반복 및 개인 일정 생성 중 오류가 발생했습니다: %s", e)
             state['response'] = "반복 및 개인 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 class ScheduleAsk(BaseNode):
@@ -371,11 +365,14 @@ class OtherGenerator(BaseNode):
     def __init__(self):
         self.chain = other_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-
+        logger.info("기타 유형에 대한 일정을 생성합니다.")
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -385,14 +382,11 @@ class OtherGenerator(BaseNode):
             })
             logger.info("기타 유형에 대한 일정 생성 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("기타 유형에 대한 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("기타 유형에 대한 일정 생성 중 오류가 발생했습니다: %s", e)
             state['response'] = "기타 유형에 대한 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 # 일반 QA 생성 노드
