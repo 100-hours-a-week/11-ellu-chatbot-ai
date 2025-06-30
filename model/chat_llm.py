@@ -9,8 +9,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 llm = ChatOpenAI(
-    model_name="gpt-4o-mini",
-    temperature=0,
+    model_name="o4-mini",
+    temperature=1,
     max_tokens=4096,
     streaming=True,
     request_timeout=60,
