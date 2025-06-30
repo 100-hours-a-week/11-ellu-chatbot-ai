@@ -47,14 +47,14 @@ class ChatHistoryService:
                 WHERE user_id = $1 AND deleted_at IS NULL 
                 ORDER BY updated_at DESC 
                 LIMIT 1
-            """, user_id)
+            """, int(user_id))
             
             if not conversation_id:
                 conversation_id = await conn.fetchval("""
                     INSERT INTO chat_conversations (user_id, created_at, updated_at)
                     VALUES ($1, NOW(), NOW()) 
                     RETURNING id
-                """, user_id)
+                """, int(user_id))
                 logger.info(f"Created new conversation {conversation_id} for user {user_id}")
             
             return conversation_id
@@ -111,7 +111,7 @@ class ChatHistoryService:
                     VALUES ($1, $2, $3, $4, $5, NOW())
                 """, 
                 conversation_id,
-                user_id,
+                int(user_id),
                 message_type,
                 content,
                 json.dumps(metadata) if metadata else None
