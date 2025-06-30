@@ -20,3 +20,7 @@ class ConversationState(TypedDict):
     search_results: Optional[str]  # Tavily 검색 결과
     next_node: Optional[str]
     # relevant_docs: Optional[str]   # RAG 관련 문서
+    recommended_slots: Optional[Dict[str, Any]]
+    recommendation_given: Optional[bool]
+    schedule_ready: Optional[bool]
+    user_feedback: Optional[str]  # recommend, generate, other

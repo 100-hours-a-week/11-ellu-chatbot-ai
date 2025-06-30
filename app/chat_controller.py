@@ -13,12 +13,10 @@ logger = logging.getLogger(__name__)
 # 챗봇 스트리밍 컨트롤러
 # ────────────────────────────────────────────────────────
 
-async def stream_chat(
-    user_input: str,
-    user_id: str,
-    date: Optional[datetime] = None
-) -> AsyncGenerator[str, None]:
+async def stream_chat(user_input: str, user_id: str, date: Optional[datetime] = None) -> AsyncGenerator[str, None]:
     try:
+        # 커넥션 초기 dummy 메시지
+        yield "data: connected\n\n"
         async for chunk in stream_conversation(user_id, user_input, date):
             payload = {
                 "message": chunk.get("message", "chatbot_response"),

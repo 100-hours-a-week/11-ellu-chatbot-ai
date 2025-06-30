@@ -1,13 +1,12 @@
-from core.chat_chains import unified_slot_chain, qa_chain, exercise_chain, learning_chain, project_chain, planner_chain, other_chain, schedule_ask_chain
-from langchain_core.exceptions import OutputParserException
+from core.chat_chains import unified_slot_chain, qa_chain, exercise_chain, learning_chain, project_chain, planner_chain, other_chain, schedule_ask_chain, slot_recommendation_chain
 import json
-from langchain_core.exceptions import OutputParserException
 from typing import Dict, Any, Optional
 from datetime import datetime
 from langchain_tavily import TavilySearch
 from typing import Dict
 from core.state import ConversationState
 import logging
+from langgraph.config import get_stream_writer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,6 +27,157 @@ class BaseNode:
     def _run(self, state: ConversationState) -> ConversationState:
         raise NotImplementedError(f"_run not implemented in {self.__class__.__name__}")
 
+# HITL: 사용자 피드백 처리 노드
+class UserFeedbackProcessor(BaseNode):
+    def __call__(self, state: ConversationState) -> ConversationState:
+        
+        if state.get("user_feedback") == "recommend":
+            state["conversation_context"] = "requesting_recommendation"
+
+        return state
+
+# HITL: 슬롯 추천 노드
+class SlotRecommender(BaseNode):
+    def __init__(self):
+        self.chain = slot_recommendation_chain()
+
+    def __call__(self, state: ConversationState) -> ConversationState:
+        history = "\n".join(state.get("history", []))
+        current_slots = state.get("slots", {})
+        category = current_slots.get("category", "")
+        awaiting_slot = state.get("awaiting_slot")
+        
+        logger.info("SlotRecommender - category: %s, awaiting_slot: %s", category, awaiting_slot)
+        
+        # 카테고리별 기본 추천 슬롯
+        default_recommendations = {
+            "learning": {
+                "period": "1주일",
+                "duration_minutes": "1시간",
+                "preferred_time": "오후 2-4시"
+            },
+            "exercise": {
+                "period": "1주일", 
+                "duration_minutes": "30분",
+                "preferred_time": "아침 7-8시"
+            },
+            "project": {
+                "deadline": "2주 후",
+                "work_hours": "09:00-18:00"
+            },
+            "recurring": {
+                "start_end_time": "09:00-10:00",
+                "frequency": "매일"
+            },
+            "personal": {
+                "start_end_time": "14:00-15:00"
+            }
+        }
+        
+        try:
+            # recommend 슬롯들을 찾기
+            recommend_slots = {k: v for k, v in current_slots.items() if v == "recommend"}
+            
+            if not recommend_slots and not awaiting_slot:
+                # recommend 슬롯이 없고 대기 중인 슬롯도 없는 경우
+                state["response"] = "일정 생성을 진행하시겠습니까?"
+                state["ask"] = True
+                logger.info("추천할 슬롯이 없습니다.")
+                return state
+            
+            # 현재 대기 중인 슬롯 또는 recommend 슬롯들에 대한 추천
+            target_slots = {}
+            if awaiting_slot:
+                target_slots[awaiting_slot] = "recommend"
+            else:
+                target_slots = recommend_slots
+                # 첫 번째 recommend 슬롯을 awaiting_slot으로 설정
+                if recommend_slots:
+                    first_recommend_slot = list(recommend_slots.keys())[0]
+                    state["awaiting_slot"] = first_recommend_slot
+                    logger.info("첫 번째 recommend 슬롯을 awaiting_slot으로 설정: %s", first_recommend_slot)
+            
+            if target_slots:
+                # 첫 번째 슬롯에 대한 추천 제공
+                slot_name = list(target_slots.keys())[0]
+                default_value = default_recommendations.get(category, {}).get(slot_name, "적절한 값")
+                
+                # LLM을 통한 지능적 추천
+                slots_json = json.dumps(current_slots, ensure_ascii=False)
+                raw_output = self.chain.invoke({
+                    "history": history,
+                    "user_input": state["user_input"],
+                    "slots": slots_json,
+                    "category": category,
+                    "date": state.get('date') or datetime.now().isoformat()
+                })
+                logger.info("recommend response: %s", raw_output)
+                
+                # LLM 응답 파싱
+                llm_response = ""
+                recommended_value = default_value
+                
+                try:
+                    if isinstance(raw_output, dict):
+                        # LLM이 dict 형태로 응답한 경우
+                        if 'response' in raw_output:
+                            llm_response = raw_output['response']
+                        elif 'text' in raw_output:
+                            llm_response = raw_output['text']
+                        elif 'recommended_slots' in raw_output:
+                            recommended_slots = raw_output['recommended_slots']
+                            if slot_name in recommended_slots:
+                                recommended_value = recommended_slots[slot_name]
+                        elif 'explanation' in raw_output:
+                            llm_response = raw_output['explanation']
+                    else:
+                        # LLM이 문자열로 응답한 경우
+                        llm_response = str(raw_output)
+                except Exception as e:
+                    logger.warning("LLM 응답 파싱 중 오류 발생, 기본값 사용: %s", e)
+                    llm_response = f"기본값을 추천드립니다."
+                
+                # 추천 메시지 생성
+                slot_value = recommended_value
+                
+                # LLM 응답이 있으면 사용, 없으면 기본 메시지 생성
+                if llm_response and llm_response.strip():
+                    recommendation_msg = llm_response
+                else:
+                    recommendation_msg = f"다음과 같이 추천드립니다:\n• {slot_value}"
+                
+                # 확인 메시지 추가
+                recommendation_msg += "\n\n이대로 진행하시겠습니까? (예/아니오 또는 수정하고 싶은 부분을 말씀해주세요)"
+                
+                state["response"] = recommendation_msg
+                state["ask"] = True
+                state["conversation_context"] = "recommendation_given"
+                
+                # 추천된 슬롯 값 설정
+                state["recommended_slots"] = {slot_name: recommended_value}
+                state["recommendation_given"] = True
+                
+                logger.info("슬롯 추천 완료: %s", slot_name)
+                
+            else:
+                # 추천할 슬롯이 없는 경우
+                state["response"] = "일정 생성을 진행하시겠습니까?"
+                state["ask"] = True
+            
+        except Exception as e:
+            logger.error("슬롯 추천 중 오류 발생: %s", e)
+            if awaiting_slot or recommend_slots:
+                slot_name = awaiting_slot or list(recommend_slots.keys())[0]
+                default_value = default_recommendations.get(category, {}).get(slot_name, "적절한 값")
+                state["recommended_slots"] = {slot_name: default_value}
+                state["recommendation_given"] = False
+                state["response"] = f"추천을 생성하는 중 오류가 발생했습니다. '{default_value}'으로 진행하시겠습니까?"
+            else:
+                state["response"] = "추천을 생성하는 중 오류가 발생했습니다."
+            state["ask"] = True
+        
+        return state
+
 # intent 분류 및 슬롯 추출 노드
 class DetectedIntent(BaseNode):
     def __init__(self):
@@ -47,9 +197,6 @@ class DetectedIntent(BaseNode):
         
         if awaiting_slot:
             context_info += f"\n[현재 상황: AI가 '{awaiting_slot}' 정보를 요청한 상태입니다.]"
-            # context_info += f"\n[중요: 사용자 입력이 이전 일정에 대한 슬롯 입력인지 새로운 일정 요청인지 판단하세요.]"
-            # context_info += f"\n[주의: AI가 슬롯을 요청한 후 사용자가 답변하는 경우, 이는 새로운 일정 요청이 아닌 슬롯 입력입니다.]"
-            # context_info += f"\n[슬롯 질문 예시: '하루에 몇 시간을 할애하실 수 있나요?', '선호하는 시간대가 언제인가요?', '목표하는 기간이 어떻게 되나요?']"
         
         enhanced_history = history + context_info
 
@@ -61,7 +208,7 @@ class DetectedIntent(BaseNode):
             logger.info("User Info: %s", state["user_input"])
             logger.info("DetectedIntent raw_output: %s", raw_output)
             if not isinstance(raw_output, dict):
-                raise OutputParserException(f"Expected dict but got {type(raw_output)}")
+                raise Exception(f"Expected dict but got {type(raw_output)}")
             parsed = raw_output
 
         except Exception as e:
@@ -79,8 +226,19 @@ class DetectedIntent(BaseNode):
             **{k: v for k, v in new_slots.items() if v}
         }
         state["slots"] = merged_slots
-        logger.info("병합된 슬롯: %s", merged_slots)
-        logger.info('Intent=%s, Slots=%s', state['intent'], state['slots'])
+        
+        # recommend 슬롯이 있으면 user_feedback 설정
+        has_recommend_slots = any(v == "recommend" for v in merged_slots.values())
+        if has_recommend_slots:
+            state["user_feedback"] = "recommend"
+        else:
+            # 기존 값을 덮어쓰지 않도록 None일 때만 초기화
+            if state.get("user_feedback") is None:
+                state["user_feedback"] = None
+        
+        # logger.info("병합된 슬롯: %s", merged_slots)
+        # logger.info('Intent=%s, Slots=%s', state['intent'], state['slots'])
+        # logger.info('DetectedIntent에서 user_feedback: %s', state.get('user_feedback'))
         return state
 
 # 슬롯 업데이트 노드
@@ -88,6 +246,11 @@ class SlotUpdater(BaseNode):
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         # 슬롯 대기 상태가 아니면 그대로 반환
         if not state.get("awaiting_slot"):
+            return state
+        
+        # recommend 슬롯이 있으면 SlotUpdater를 건너뛰고 추천 처리로 이동
+        if any(v == "recommend" for v in state.get("slots", {}).values()):
+            logger.info("recommend 슬롯이 감지되어 SlotUpdater를 건너뜁니다.")
             return state
         
         # intent가 general인 경우 슬롯 업데이트를 건너뛰고 일반 응답으로 처리
@@ -117,8 +280,7 @@ class SlotUpdater(BaseNode):
         # 기존 카테고리 유지 (새로운 카테고리로 덮어쓰지 않음)
         if state.get("slots", {}).get("category"):
             logger.info("기존 카테고리 유지: %s", state["slots"]["category"])
-        logger.info("사용자 응답을 받았습니다. ask=False로 설정합니다.")
-        logger.info("슬롯이 채워져서 intent를 schedule로 설정했습니다.")
+
         return state
 
 # 누락된 슬롯 질문 노드
@@ -155,7 +317,6 @@ class MissingSlotAsker(BaseNode):
             return state
             
         cat = state.get("slots", {}).get("category", "")
-        logger.info("추출된 카테고리: %s", cat)
         cfg = self._CFG.get(cat)
         if not cfg:
             state.update(
@@ -205,7 +366,7 @@ class ExerciseSearchInfo(BaseNode):
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         query = state.get("task_title") or state["user_input"]
         try:
-            hits = self.tavily.invoke(query) or []
+            hits = self.tavily.invoke(query) or {}
             results = hits.get("result", [])
             state["search_results"] = results[: self.top_k]
             logger.info("Tavily 검색 쿼리: %s", query)
@@ -219,13 +380,15 @@ class ExerciseScheduleGenerator(BaseNode):
     def __init__(self):
         self.chain = exercise_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
         search_results = state.get('search_results', '검색 결과 없음')
         logger.info("검색 결과와 함께 운동 일정을 생성합니다.")
-
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -236,14 +399,11 @@ class ExerciseScheduleGenerator(BaseNode):
             })
             logger.info("운동 일정 실행 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("운동 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("운동 일정 생성 중 오류가 발생했습니다.: %s", e)
             state['response'] = "운동 일정 생성 중 오류가 발생했습니다."
-
         return state
     
     def _extra_payload(self, state):
@@ -254,32 +414,29 @@ class LearningScheduleGenerator(BaseNode):
     def __init__(self):
         self.chain = learning_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-        
         logger.info("학습 일정 생성 - 병합된 슬롯 정보: %s", slots_dict)
-
         try:
             raw_output = self.chain.invoke({
                 "history": history,
                 "user_input": state['user_input'],
                 "slots": slots_json,
-                # "relevant_docs": relevant_docs,
                 "date": state['date'] or datetime.now().isoformat()
             })
             logger.info("학습 일정을 생성합니다.")
             logger.info("학습 일정 생성 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("학습 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("학습 일정 생성 중 오류가 발생했습니다.: %s", e)
             state['response'] = "학습 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 # 스케줄 생성 노드 - 프로젝트
@@ -287,11 +444,14 @@ class ProjectScheduleGenerator(BaseNode):
     def __init__(self):
         self.chain = project_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-
+        logger.info("프로젝트 일정을 생성합니다.")
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -299,18 +459,13 @@ class ProjectScheduleGenerator(BaseNode):
                 "slots": slots_json,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("프로젝트 일정을 생성합니다.")
             logger.info("프로젝트 일정 생성 결과: %s", raw_output)
-
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("프로젝트 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("프로젝트 일정 생성 중 오류가 발생했습니다.: %s", e)
             state['response'] = "프로젝트 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 # 스케줄 생성 노드 - 반복, 개인 일정
@@ -318,11 +473,14 @@ class PlannerGenerator(BaseNode):
     def __init__(self):
         self.chain = planner_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-
+        logger.info("반복 및 개인 일정을 생성합니다.")
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -330,24 +488,20 @@ class PlannerGenerator(BaseNode):
                 "slots": slots_json,
                 "date": state['date'] or datetime.now().isoformat()
             })
-            logger.info("반복 및 개인 일정을 생성합니다.")
             logger.info("반복 및 개인 일정을 생성 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("반복 및 개인 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("반복 및 개인 일정 생성 중 오류가 발생했습니다: %s", e)
             state['response'] = "반복 및 개인 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 class ScheduleAsk(BaseNode):
     def __init__(self):
         self.chain = schedule_ask_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state: ConversationState) -> ConversationState:
         history = "\n".join(state.get("history", []))
         try:
             raw_output = self.chain.invoke({
@@ -371,11 +525,14 @@ class OtherGenerator(BaseNode):
     def __init__(self):
         self.chain = other_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state, writer=None):
+        if writer is None:
+            writer = get_stream_writer()
+        writer({"type": "schedule_start", "message": "⏳ 일정 생성 중입니다..."})
         history = "\n".join(state.get("history", []))
         slots_dict = state.get('slots', {})
         slots_json = json.dumps(slots_dict, ensure_ascii=False)
-
+        logger.info("기타 유형에 대한 일정을 생성합니다.")
         try:
             raw_output = self.chain.invoke({
                 "history": history,
@@ -385,14 +542,11 @@ class OtherGenerator(BaseNode):
             })
             logger.info("기타 유형에 대한 일정 생성 결과: %s", raw_output)
             state['response'] = raw_output
-            # 일정 생성 완료 후 슬롯 초기화
             state["slots"] = {}
             logger.info("기타 유형에 대한 일정 생성 완료 후 슬롯을 초기화했습니다.")
-
         except Exception as e:
             logger.error("기타 유형에 대한 일정 생성 중 오류가 발생했습니다: %s", e)
             state['response'] = "기타 유형에 대한 일정 생성 중 오류가 발생했습니다."
-
         return state
     
 # 일반 QA 생성 노드
@@ -400,7 +554,7 @@ class QaGenerator(BaseNode):
     def __init__(self):
         self.chain = qa_chain()
 
-    def __call__(self, state: ConversationState) -> dict:
+    def __call__(self, state: ConversationState) -> ConversationState:
         history = "\n".join(state.get("history", []))
         logger.info("일반 질의: %s", state['user_input'])
 
