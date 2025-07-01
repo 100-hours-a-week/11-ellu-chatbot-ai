@@ -41,7 +41,7 @@ class ChatGraphBuilder:
         self.graph_builder.add_conditional_edges(
             "detect_intent_and_slots",
             lambda state: (
-                "process_user_feedback" if state.get("user_feedback") in ["recommend", "generate", "other"]
+                "process_user_feedback" if state.get("user_feedback") == "recommend"
                 else "update_slot" if state.get("awaiting_slot") and not state.get("user_feedback") and not any(v == "recommend" for v in state.get("slots", {}).values())
                 else "ask_missing_slot" if state.get("intent") == "schedule" 
                 else "general_qa"
