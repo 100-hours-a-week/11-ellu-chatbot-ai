@@ -38,6 +38,8 @@ class ConversationService:
                         conversation_id, user_id, "ASSISTANT", chunk["message"]
                     )
                     yield mode, chunk
+                elif mode == "custom" and chunk.get("type") == "subtask":
+                    yield mode, chunk
                 elif mode == "values" and "response" in chunk:
                     response = chunk["response"]
                     response_text = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False)
@@ -66,4 +68,3 @@ class ConversationService:
             }
 
 conversation_service = ConversationService()
-

@@ -15,10 +15,10 @@ slot_format_instructions = slot_parser.get_format_instructions()
 
 # schedule parser
 planner_schemas = [
-    ResponseSchema(
-        name="task_title", 
-        description="메인 태스크 제목"
-        ),
+    # ResponseSchema(
+    #     name="task_title", 
+    #     description="메인 태스크 제목"
+    #     ),
     ResponseSchema(
         name="detail",
         description=(
