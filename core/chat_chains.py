@@ -1,39 +1,38 @@
 from langchain.output_parsers import StructuredOutputParser
 from model.json_parsed import slot_parser, planner_parser, generate_parser
-from model.prompt_template import (
-    qa_prompt, exercise_prompt, unified_prompt, 
-    learning_prompt, planner_prompt, project_prompt, other_prompt, 
-    schedule_ask_prompt, slot_recommendation_prompt
-)
+from model.prompt_template import qa_prompt, exercise_prompt, learning_prompt, planner_prompt, project_prompt, other_prompt, schedule_ask_prompt, slot_recommendation_prompt, intent_prompt, slot_category_prompt
 from model.chat_llm import llm
 
 # ────────────────────────────────────────────────────────
 # 챗봇 응답 체인 정의
 # ────────────────────────────────────────────────────────
 
-def unified_slot_chain() -> StructuredOutputParser:
-    return  unified_prompt | llm | slot_parser
-
 def qa_chain() -> StructuredOutputParser:
     return  qa_prompt | llm | generate_parser
 
-def exercise_chain() -> StructuredOutputParser:
-    return  exercise_prompt | llm | planner_parser
+def exercise_chain():
+    return  exercise_prompt | llm 
 
-def learning_chain() -> StructuredOutputParser:
-    return  learning_prompt | llm | planner_parser
+def learning_chain():
+    return  learning_prompt | llm 
 
-def project_chain() -> StructuredOutputParser:
-    return  project_prompt | llm | planner_parser
+def project_chain():
+    return  project_prompt | llm 
 
-def planner_chain() -> StructuredOutputParser:
-    return  planner_prompt | llm | planner_parser
+def planner_chain():
+    return  planner_prompt | llm 
 
-def other_chain() -> StructuredOutputParser:
-    return  other_prompt | llm | planner_parser
+def other_chain():
+    return  other_prompt | llm
 
 def schedule_ask_chain() -> StructuredOutputParser:
     return schedule_ask_prompt | llm | generate_parser
 
-def slot_recommendation_chain():
+def slot_recommendation_chain() -> StructuredOutputParser:
     return slot_recommendation_prompt | llm | generate_parser
+
+def intent_chain() -> StructuredOutputParser:
+    return intent_prompt | llm | generate_parser
+
+def slot_category_chain() -> StructuredOutputParser:
+    return slot_category_prompt | llm | slot_parser
