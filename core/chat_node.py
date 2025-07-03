@@ -394,7 +394,6 @@ class BaseScheduleGenerator(BaseChainNode):
             stream_result = self.chain.stream(invoke_args)
             stream_result = cast(Iterable[Any], stream_result)
             try:
-                # Check if stream_result is iterable using collections.abc.Iterable
                 if not isinstance(stream_result, Iterable):
                     logger.error(f"{self.log_prefix} stream이 반복 가능한 객체를 반환하지 않습니다.")
                     state['response'] = f"{self.log_prefix} stream이 반복 가능한 객체를 반환하지 않습니다."
