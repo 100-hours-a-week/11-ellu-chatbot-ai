@@ -1,11 +1,6 @@
 from langgraph.graph import StateGraph, END
 from core.state import ConversationState
-from core.chat_node import (
-    DetectedIntent, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, 
-    LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator, 
-    SlotUpdater, OtherGenerator, ScheduleAsk,
-    UserFeedbackProcessor, SlotRecommender
-)
+from core.chat_node import IntentDetector, SlotCategoryExtractor, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator, OtherGenerator, ScheduleAsk, UserFeedbackProcessor, SlotRecommender
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -20,8 +15,8 @@ class ChatGraphBuilder:
         self.graph_builder = StateGraph(ConversationState)
 
     def add_node(self):
-        self.graph_builder.add_node("detect_intent_and_slots", DetectedIntent())
-        self.graph_builder.add_node("update_slot", SlotUpdater())
+        self.graph_builder.add_node("detect_intent", IntentDetector())
+        self.graph_builder.add_node("detect_slot_and_category", SlotCategoryExtractor())
         self.graph_builder.add_node("ask_missing_slot", MissingSlotAsker()) 
         self.graph_builder.add_node("search_exercise_info", ExerciseSearchInfo())
         self.graph_builder.add_node("generate_exercise_schedule", ExerciseScheduleGenerator())
@@ -35,20 +30,30 @@ class ChatGraphBuilder:
         self.graph_builder.add_node("recommend_slots", SlotRecommender())
 
     def set_entry_point(self):
-        self.graph_builder.set_entry_point("detect_intent_and_slots")
+        self.graph_builder.set_entry_point("detect_intent")
         
     def add_conditional_edges(self):
+        # intent 추출
         self.graph_builder.add_conditional_edges(
-            "detect_intent_and_slots",
+            "detect_intent",
+            lambda state: (
+                "detect_slot_and_category" if state.get("intent") == "schedule" else "general_qa"
+            ),
+            {
+                "detect_slot_and_category": "detect_slot_and_category",
+                "general_qa": "general_qa"
+            }
+        )
+        # slot/category 추출
+        self.graph_builder.add_conditional_edges(
+            "detect_slot_and_category",
             lambda state: (
                 "process_user_feedback" if state.get("user_feedback") == "recommend"
-                else "update_slot" if state.get("awaiting_slot") and not state.get("user_feedback") and not any(v == "recommend" for v in state.get("slots", {}).values())
                 else "ask_missing_slot" if state.get("intent") == "schedule" 
                 else "general_qa"
             ),
             {
                 "process_user_feedback": "process_user_feedback",
-                "update_slot": "update_slot",
                 "ask_missing_slot": "ask_missing_slot",
                 "general_qa": "general_qa"
             }
@@ -112,20 +117,6 @@ class ChatGraphBuilder:
             {
                 "need_input": END,
                 "generate_other_schedule": "generate_other_schedule",
-            }
-        )
-
-        self.graph_builder.add_conditional_edges(
-            "update_slot",
-            lambda state: (
-                "general_qa" if state.get("intent") == "general" or state.get("conversation_context") == "general_query"
-                else "generate_other_schedule" if state.get("conversation_context") == "other_response_received"
-                else "ask_missing_slot"
-            ),
-            {
-                "general_qa": "general_qa",
-                "generate_other_schedule": "generate_other_schedule",
-                "ask_missing_slot": "ask_missing_slot",
             }
         )
 
