@@ -90,7 +90,8 @@ class ChatHistoryService:
                 "slots": last_state.get("slots", {}),
                 "conversation_context": last_state.get("conversation_context"),
                 "awaiting_slot": last_state.get("awaiting_slot"),
-                "intent": last_state.get("intent")
+                "intent": last_state.get("intent"),
+                "task_title": last_state.get("task_title"),
             }
     
     async def save_message(
