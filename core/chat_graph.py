@@ -33,23 +33,21 @@ class ChatGraphBuilder:
         self.graph_builder.set_entry_point("detect_intent")
         
     def add_conditional_edges(self):
-        # intent 추출
         self.graph_builder.add_conditional_edges(
             "detect_intent",
             lambda state: (
-                "detect_slot_and_category" if state.get("intent") == "schedule" else "general_qa"
+                "detect_slot_and_category" if state.get("intent") in ["schedule", "confirm"] else "general_qa"
             ),
             {
                 "detect_slot_and_category": "detect_slot_and_category",
                 "general_qa": "general_qa"
             }
         )
-        # slot/category 추출
         self.graph_builder.add_conditional_edges(
             "detect_slot_and_category",
             lambda state: (
                 "process_user_feedback" if state.get("user_feedback") == "recommend"
-                else "ask_missing_slot" if state.get("intent") == "schedule" 
+                else "ask_missing_slot" if state.get("intent") in ["schedule", "confirm"]
                 else "general_qa"
             ),
             {
@@ -58,12 +56,11 @@ class ChatGraphBuilder:
                 "general_qa": "general_qa"
             }
         )
-
         self.graph_builder.add_conditional_edges(
             "process_user_feedback",
             lambda state: (
                 "recommend_slots" if state.get("user_feedback") == "recommend"
-                else "ask_missing_slot" if state.get("intent") == "schedule"
+                else "ask_missing_slot" if state.get("intent") in ["schedule", "confirm"]
                 else "general_qa"
             ),
             {
@@ -72,7 +69,6 @@ class ChatGraphBuilder:
                 "general_qa": "general_qa"
             }
         )
-
         self.graph_builder.add_conditional_edges(
             "recommend_slots",
             lambda state: (
@@ -86,16 +82,17 @@ class ChatGraphBuilder:
         self.graph_builder.add_conditional_edges(
             "ask_missing_slot",
             lambda state: (
-                "general_qa" if state.get("intent") == "general" or state.get("conversation_context") == "general_query"
+                # (logger.info(f"[GRAPH] ask_missing_slot 분기: intent={state.get('intent')}, ask={state.get('ask')}, next_node={state.get('next_node')}, slots={state.get('slots')}") or None) or
+                ("general_qa" if state.get("intent") == "general" or state.get("conversation_context") == "general_query"
                 else "need_input" if state.get('ask', False)
+                else state.get('next_node') if state.get('next_node')
                 else {
                     'exercise': 'search_exercise_info',
                     'learning': 'generate_learning_schedule',
                     'project': 'generate_project_schedule',
-                    'recurring': 'generate_schedule',
                     'personal': 'generate_schedule',
-                    'other': 'schedule_ask',
-                }.get(state.get('slots', {}).get('category', ''), 'general_qa') 
+                    'other': 'generate_other_schedule',
+                }.get(state.get('slots', {}).get('category', ''), 'general_qa'))
             ),
             {
                 "need_input": END,
@@ -105,6 +102,7 @@ class ChatGraphBuilder:
                 "generate_schedule": "generate_schedule", 
                 "general_qa": "general_qa",
                 "schedule_ask": "schedule_ask",
+                "generate_other_schedule": "generate_other_schedule",
             }
         )
 
