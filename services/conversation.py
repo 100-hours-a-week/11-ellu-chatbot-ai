@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 from core.chat_graph import chat_graph
 from core.database import chat_history_service 
 import logging
+from core.utils import convert_datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,19 +24,25 @@ class ConversationService:
                 conversation_id, user_id, "USER", user_input
             )
 
+            slots = context["slots"]
+            if context.get("task_title"):
+                slots["task_title"] = context["task_title"]
+
             state = {
                 "user_input": user_input,
                 "history": context["history"],
                 "date": date or datetime.now().isoformat(),
-                "slots": context["slots"],
+                "slots": slots,
                 "conversation_context": context.get("conversation_context"),
-                "awaiting_slot": context.get("awaiting_slot")
+                "awaiting_slot": context.get("awaiting_slot"),
+                "task_title": context.get("task_title"),
+                "intent": context.get("intent"),
             }
 
             async for mode, chunk in chat_graph.astream(state, stream_mode=["custom", "values"]):
                 if mode == "custom" and chunk.get("type") == "schedule_start":
                     await self.chat_history.save_message(
-                        conversation_id, user_id, "ASSISTANT", chunk["message"]
+                        conversation_id, user_id, "ASSISTANT", chunk["message"], metadata=convert_datetime(state)
                     )
                     yield mode, chunk
                 elif mode == "custom" and chunk.get("type") == "subtask":
@@ -48,12 +55,7 @@ class ConversationService:
                         user_id,
                         "ASSISTANT",
                         response_text,
-                        {
-                            "slots": chunk.get("slots", {}),
-                            "intent": chunk.get("intent"),
-                            "conversation_context": chunk.get("conversation_context"),
-                            "awaiting_slot": chunk.get("awaiting_slot")
-                        }
+                        convert_datetime(state)
                     )
                     yield mode, chunk
                 else:
