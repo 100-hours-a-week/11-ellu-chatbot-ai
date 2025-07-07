@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Dict, Generator
+from typing import Any, Generator
 
 # datetime, dict, list를 문자열로 변환
 def convert_datetime(obj):
@@ -30,7 +30,7 @@ def parse_llm_response(raw_output: Any) -> Any:
             return raw_output
     return str(raw_output)
 
-# 슬롯 dict 병합 (빈 값은 무시)
+# 슬롯 dict 병합
 def merge_slots(existing: dict, new: dict) -> dict:
     for k, v in new.items():
         if v and v.strip():
@@ -43,3 +43,21 @@ def extract_content(chunk: Any) -> Any:
     if content is None and isinstance(chunk, dict):
         content = chunk.get('content')
     return content if content is not None else str(chunk) 
+
+# task_title 병합
+def merge_task_title(old_title, new_title):
+    if new_title is not None and str(new_title).strip() != "":
+        return new_title
+    return old_title or "" 
+
+# 청크 스트리밍
+def stream_llm_chunks(stream, writer=None, message_type="stream", message_key="message"):
+    response_chunks = []
+    for chunk in stream:
+        content = extract_content(chunk)
+        if content is not None:
+            content_str = str(content)
+            response_chunks.append(content_str)
+            if writer:
+                writer({"type": message_type, message_key: content_str})
+    return "".join(response_chunks) 
