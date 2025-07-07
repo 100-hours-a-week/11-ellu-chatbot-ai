@@ -7,8 +7,9 @@ from model.chat_llm import llm
 # 챗봇 응답 체인 정의
 # ────────────────────────────────────────────────────────
 
-def qa_chain() -> StructuredOutputParser:
-    return  qa_prompt | llm | generate_parser
+
+def qa_chain():
+    return qa_prompt | llm
 
 def exercise_chain():
     return  exercise_prompt | llm 
@@ -25,11 +26,11 @@ def planner_chain():
 def other_chain():
     return  other_prompt | llm
 
-def schedule_ask_chain() -> StructuredOutputParser:
-    return schedule_ask_prompt | llm | generate_parser
+def schedule_ask_chain():
+    return schedule_ask_prompt | llm 
 
-def slot_recommendation_chain() -> StructuredOutputParser:
-    return slot_recommendation_prompt | llm | generate_parser
+def slot_recommendation_chain():
+    return slot_recommendation_prompt | llm 
 
 def intent_chain() -> StructuredOutputParser:
     return intent_prompt | llm | generate_parser
