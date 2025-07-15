@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from core.database import db_manager
-from app.chat_router import router
+from app.chat_router import router, router_query
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 # 라우터 등록
 app.include_router(router, prefix="/ai", tags=["chats"])
+app.include_router(router_query, tags=["chat_query"])
 
 # 루트 엔드포인트
 @app.get("/")

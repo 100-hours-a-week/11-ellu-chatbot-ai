@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # ────────────────────────────────────────────────────────
 
 router = APIRouter()
+router_query = APIRouter()
 
 # 챗봇 API 엔드포인트
 @router.post(
@@ -28,8 +29,8 @@ async def chat_endpoint(req: ChatRequest):
     user_input = req.message or ""
     return StreamingResponse(stream_chat(user_input, user_id, date), media_type="text/event-stream")
 
-# 쿼리 API 엔드포인트
-@router.post(
+# 쿼리 API 엔드포인트 (prefix 없이 루트에 등록)
+@router_query.post(
     "/chat/query",
     summary="일정 쿼리",
     description="쿼리 파라미터(JSON)를 받아서 일정 데이터를 조회하고, CalendarQueryResponse로 반환"
