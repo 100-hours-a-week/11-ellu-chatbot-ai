@@ -1,5 +1,5 @@
 from langchain_core.prompts import PromptTemplate
-from model.json_parsed import slot_format_instructions, planner_format_instructions, generate_format_instructions
+from model.json_parsed import slot_format_instructions, generate_format_instructions, query_format_instructions
 
 # ────────────────────────────────────────────────────────
 # 프롬프트 템플릿 정의
@@ -21,7 +21,7 @@ intent_prompt = PromptTemplate(
 1) 반드시 **대화 기록**을 먼저 확인하고, 문맥에 맞게 intent를 분류하세요.
   - confirm: 일정 생성에 동의하거나, 추천/자동/기존 정보로 바로 일정을 생성해달라는 의사(예: "응", "이대로 생성해줘", "네", "진행해줘", "좋아요", "ㅇㅋ", "바로 생성해줘" 등)
   - schedule: 일정 생성 요청
-  - view: 일정 조회 요청(특정 테스크나 일자 등의 일정에 대해 묻는 경우일 때)
+  - calendar: 일정 조회 요청(특정 테스크나 일자 등의 일정에 대해 묻는 경우일 때)
   - general: 일정 생성과 관련 없는 일반 질문
 
 아래 JSON 형식을 **반드시** 지켜서 응답하세요.
@@ -49,7 +49,7 @@ slot_category_prompt = PromptTemplate(
     input_variables=["history", "user_input", "task_title"],
     partial_variables={"format_instructions": slot_format_instructions},
     template="""
-아래 대화 기록과 사용자 입력, 그리고 기존 task_title 정보를 참고하여 slot과 category를 추출하세요.
+아래 대화 기록과 사용자 입력, 그리고 기존 task_title 정보를 참고하여 slot과 category, type을 추출하세요.
 
 대화 기록:
 {history}
@@ -87,7 +87,7 @@ slot_category_prompt = PromptTemplate(
     - 프로젝트(category: project) 일정 생성 시 work_hours와 deadline은 반드시 추출해야 합니다.
   <슬롯 유형>   
    - task_title: 요청된 메인 테스크(기간(예: 한달, 월요일) 등은 제외하고 메인 테스크만 간략하게 작성하세요.)
-   - schedule_ask: 활동 유형이 'other'일 때 일정 생성에 필요한 정보가 불충분하여 재질문이 필요한 경우 True를 추출하세요.(특정 기간, 일자, 장소 등 최소한의 정보도 없을 시)
+   - schedule_ask: 활동 유형이 'other'일 때 일정 생성에 필요한 정보가 불충분하여 재질문이 필요한 경우 True를 추출하세요.(특정 기간, 일자, 장소 등 일정을 생성하는 데 필요한 최소한의 정보도 없을 시)
      - "바로 생성", "그냥 계획해줘", "알아서 생성해줘", "캘린더에 바로 넣어줘" 등과 같이 바로 일정 생성을 원하는 입력일 경우 False를 추출하세요.
    - recommend_ask: 사용자 입력을 확인하여 추천을 원하는 사용자 응답 또는 요청에는 True를 추출하세요.(예: 추천해줘, 추천, 정해줘, 알아서 추천, 고민이야 등)
       - "바로 생성", "그냥 계획해줘", "알아서 생성해줘", "캘린더에 바로 넣어줘" 등과 같이 바로 일정 생성을 원하는 입력일 경우 False를 추출하세요.
@@ -97,25 +97,26 @@ slot_category_prompt = PromptTemplate(
    - preferred_time: 선호 시간대(예: 오전 9시-11시, 오후 2-4시)
    - deadline: 마감일(YYYY-MM-DD)
    - work_hours: 업무시간(HH:MM-HH:MM)
-   - frequency (recurring): 반복 주기(예: 매일, 매주 월요일)
+   - frequency: 반복 주기(예: 매일, 매주 월요일)
    - start_end_time: 시작 시간-종료 시간(예: 09:00-10:00)
-   - category: 반드시 아래 활동유형 5가지 중 하나로 설정되어야 합니다.
-   (learning, exercise, project의 경우 **추천이 필요하거나 "계획 세워줘"**와 같은 요청일 때만 분류하세요.)
+   - category: 반드시 아래 활동유형 4가지 중 하나로 설정되어야 합니다.
     <활동 유형>
-    (1) personal: 반복되거나 단일적인 **일정 추천이 필요 없는 일반 개인 일정 생성**과 관련된 요청(예: 매주 수요일 미팅, 6월 3일 약속, 다음주 수요일 운동, 매일 공부 캘린더에 넣어줘 등)
-      - '일정 추가해줘', '캘린더에 넣어줘', "캘린더에 추가해줘" 등과 같은 사용자의 입력이 단순히 일정 추가를 원하는 경우 **반드시** personal로 설정합니다.  
-      - 세부적인 일정 생성, 계획 및 추천을 요청하는 경우에는 personal로 설정되어서는 안됩니다.
-    (2) learning: 세부 공부, 학습 일정 생성 및 추천과 관련된 요청
-    (3) exercise: 세부 운동 일정 생성 및 추천과 관련된 요청
-    (4) project: 프로젝트 일정 생성 및 추천과 관련된 요청
-    (5) other: 어느 활동 유형에도 포함되지 않은 일정 계획 생성 및 추천과 관련된 요청(예: 여행 일정 추천, 기타 다른 일정 추천)
+    (1) learning: 세부 공부, 학습 일정 생성 및 추천과 관련된 요청
+    (2) exercise: 세부 운동 일정 생성 및 추천과 관련된 요청
+    (3) project: 프로젝트 일정 생성 및 추천과 관련된 요청
+    (4) other: 어느 활동 유형에도 포함되지 않은 일정 계획 생성 및 추천과 관련된 요청(예: 여행 일정 추천, 기타 다른 일정 추천)
       - 일정 추천 요청일 때 어느 활동 유형에도 포함되지 않은 요청은 other로 설정해야 합니다.
 
-아래 JSON 형식을 **반드시** 지켜서 응답하세요.
+2) type(personal) 분기 기준
+  - 단일적이거나 반복적인 일정(예: 6/30 약속, 매주 수요일 미팅, 반복되는 개인 일정 등)은 type: personal로 추가하세요.
+  - 일정 추천을 원하는 요청일 경우 **절대로** type을 명시하지 마세요.
+  - 그 외에는 type을 명시하지 마세요.
+
+아래 JSON 형식을 반드시 지켜서 응답하세요.
 {format_instructions}
 
 구체적인 예시 1:
-사용자 대화 기록: "오늘부터 일주일간 챗봇 구현 방법에 대해 오후 6-7시까지 공부할거야. 계획 세워줘"
+사용자 대화 기록: "오늘부터 일주일간 챗봇 구현 방법에 대해 공부할거야. 계획 세워줘"
 응답:
 ```json
 {{
@@ -167,9 +168,12 @@ slot_category_prompt = PromptTemplate(
   "schedule_ask": "False",
   "slots": {{
     "category": "other",
-    "duration_minutes": "6-7시",
-    "preferred_time": "아침",
-    "period": ""
+    "duration_minutes": "",
+    "preferred_time": "",
+    "period": "7월 10~13일",
+    "start_end_time": "00:00-23:59",
+    "schedule_ask": "False",
+    "recommend_ask": "False"
   }}
 }}```
 
@@ -181,12 +185,13 @@ slot_category_prompt = PromptTemplate(
   "task_title": "필라테스",
   "intent": "schedule",
   "slots": {{
-    "category": "personal",
+    "category": "exercise",
     "duration_minutes": "",
     "preferred_time": "",
     "period": "한달",
     "frequency": "월, 수, 금"
-  }}
+  }},
+  "type": "personal"
 }}```
 """
 )
@@ -244,7 +249,7 @@ slot_recommendation_prompt = PromptTemplate(
 3. 여행 등의 일정 계획인 경우 지역의 특색과 유명한 코스를 중점적으로 여행 계획을 생성하여 추천해주세요.
 
 <활동 카테고리가 'other'이외인 경우 추천 규칙>
-1. 'other'이외의 카테고리는 현재 비어있거나 recommend로 추출된 슬롯에 대해서만 추천하세요.
+1. 'other'이외의 카테고리는 현재 비어있거나 recommend로 추출된 슬롯을 중점으로 추천하되, 대화 기록과 사용자 입력도 참고해주세요.
 
 2. 슬롯 종류
 - period: 기간(예: 3일, 일주일, 한달 등)
@@ -264,8 +269,10 @@ slot_recommendation_prompt = PromptTemplate(
 
 4. 추천 응답과 이유에 대해 한 문장으로 간단히 텍스트 형식으로만 설명해주세요.
 - 사용자에게 친근하고 자연스러운 톤으로 이모지를 사용하여 추천 메시지를 작성해주세요.
-- 슬롯 종류의 영어를 그대로 응답하지 말고 풀어서 작성해주세요.
-- 예시: "일주일동안 하루에 1시간을 할애하는 것을 추천드려요! 이는 일주일 동안 충분한 학습 시간을 확보할 수 있는 적절한 시간입니다 🔥"
+- 슬롯 종류, 슬롯 영어를 그대로 응답하지 말고 풀어서 작성해주세요.
+- 예시: "코딩테스트 공부를 일주일동안 하루에 1시간, 오후 7-8시에 할애하는 것을 추천드려요! 
+        6/12(목): 배열 및 기본 연산 개념 학습... 
+        일주일동안 충분히 학습 가능하도록 계획했어요! 🔥"
 """
 )
 
@@ -305,6 +312,7 @@ exercise_prompt = PromptTemplate(
 - 아래 슬롯 정보와 검색 결과를 바탕으로 운동 스케줄을 구체적으로 생성하세요.
 - 검색 결과에서 얻은 최신 운동 정보와 현재 시간을 반영하여 효과적인 운동 계획을 세워주세요.
 - 사용자의 입력에 따라 난이도를 고려하되, 난이도가 포함되어 있지 않다면 초보자로 고려하여 일정을 생성하세요.
+- 초보자용, 중급자용 등과 같은 난이도를 나타내는 단어는 사용하지 마세요.
 - 각 subtask당 실행 시간은 실제 시행이 가능한 시간으로 고려하여 최소 30분 이상, 모든 시간은 30분, 1시간 단위로 생성하세요.
 - 기간을 고려하여 모든 일정을 적절히 배분하여 출력해주세요. 압축하지 말고 **모든 일자**를 출력해야 합니다. 
   (예: 6/12부터 한달동안 운동 계획을 세우는 경우 일주일에 3번 정도로 배분하여 7/12까지, 한달간의 모든 계획을 세워야 합니다.)
@@ -340,6 +348,7 @@ learning_prompt = PromptTemplate(
 - 아래 슬롯 정보, 기존 task_title, 사용자 요청을 바탕으로 학습 스케줄을 구체적으로 생성하세요.
 - 학습 스케줄은 주제, 난이도, 학습 순서 등을 고려하여 작성합니다.
 - 사용자 입력에 난이도가 포함되어 있지 않다면, 초보자로 고려하여 일정을 생성하세요.
+- 초보자용, 중급자용 등과 같은 난이도를 나타내는 단어는 사용하지 마세요.
 - 사용자 입력이 이론 위주의 공부라면 프로젝트 계획, 프로젝트 발표 등과 같은 '프로젝트' 키워드는 제외하여야 합니다.
 - 현재 시간을 반영하여 효과적인 학습 계획을 세워주세요.
 - 각 subtask당 실행 시간은 실제 시행이 가능한 시간으로 고려하여 최소 30분 이상, 모든 시간은 30분, 1시간 단위로 생성하세요.
@@ -445,4 +454,72 @@ other_prompt = PromptTemplate(
 예시:
 {{"subtasks": "공항 도착", "start_time": "2025-04-21T09:00:00", "end_time": "2025-04-21T10:00:00"}}
 ..."""
+)
+
+# 일정 조회 쿼리 생성 프롬프트
+calendar_query_prompt = PromptTemplate(
+    input_variables=["history", "user_input", "date"],
+    template="""
+대화 기록:
+{history}
+
+사용자 요청: 
+{user_input}
+"""
+)
+
+# 일정 조회 쿼리 생성 프롬프트
+calendar_query_generation_prompt = PromptTemplate(
+    input_variables=["history", "user_input", "date"],
+    partial_variables={"query_format_instructions": query_format_instructions},
+    template="""
+아래의 대화 기록과 사용자 입력을 참고하여 일정 조회에 필요한 정보를 추출해 쿼리 JSON을 생성하세요.
+<추출 조건>
+1. 사용자 입력에 포함된 일정 조회 요청을 추출해야 합니다.
+2. 사용자 입력에 기간이 포함되어 있지 않다면 한달을 기준으로 추출해야 합니다.
+3. 최근, 근래, 최신 등과 같이 모호한 일정인 경우 현재 시간을 기준으로 +- 3일 이내의 기간을 추출하세요.
+4. 사용자 입력에 특정 타이틀이 포함되어 있지 않다면 task_title_keyword는 빈 문자열로 설정해야 합니다.
+  - 예시: "6/30일정 보여줘", "다음주 일정에 대해 말해줘" 등 메인 테스크에 대한 요청이 포함되어 있지 않은 경우
+5. 사용자 입력에 category는 4가지 중 하나로 설정해야 합니다.
+  (1) learning: 세부 공부, 학습 일정 생성 및 추천과 관련된 요청
+  (2) exercise: 세부 운동 일정 생성 및 추천과 관련된 요청
+  (3) project: 프로젝트 일정 생성 및 추천과 관련된 요청
+  (4) other: 어느 활동 유형에도 포함되지 않은 기타 유형(예: 여행 일정 추천, 기타 다른 일정 추천)
+  (5) 일정 기간에 대한 조회를 요청하는 경우 빈 문자열로 설정해야 합니다. (예: 다음주, 6월달, 한달)
+
+대화 기록:
+{history}
+
+사용자 입력:
+{user_input}
+
+현재 시간:
+{date}
+
+아래 형식의 JSON으로 응답하세요:
+{query_format_instructions}
+예시:
+{{
+  "start": "YYYY-MM-DDTHH:MM:SS",
+  "end": "YYYY-MM-DDTHH:MM:SS",
+  "task_title_keyword": "키워드",
+  "category": "카테고리"
+}}
+"""
+)
+
+# 일정 조회 결과 요약 프롬프트
+calendar_query_summary_prompt = PromptTemplate(
+    input_variables=["calendar_results", "user_input", "date"],
+    template="""
+아래는 사용자의 일정 조회 요청에 대한 DB 조회 결과입니다.
+
+조회 결과:
+{calendar_results}
+
+사용자에게 친근하고 자연스러운 말투로, 주요 일정(날짜, 시간, 제목 등)을 요약해서 안내하는 답변을 작성하세요.
+- 일정이 여러 개면 날짜별로 정리
+- 일정이 없으면 "해당 기간에 일정이 없습니다. 조회하고자 하는 일정을 자세하게 입력해주시면 더 원활한 조회가 가능합니다." 등으로 안내
+- 예시: "6월 12일(목) 14시~16시, 6월 18일(수) 10시~11시 30분에 필라테스가 예정되어 있습니다."
+"""
 )
