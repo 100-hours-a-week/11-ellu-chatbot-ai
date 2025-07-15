@@ -1,14 +1,15 @@
 import json
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Optional
 from core.chat_graph import chat_graph
 from core.database import chat_history_service 
 import logging
-from core.utils import convert_datetime
+from core.utils import convert_datetime, safe_convert
+import os
+import httpx
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class ConversationService:
     def __init__(self):
@@ -18,10 +19,9 @@ class ConversationService:
         try:
             context = await self.chat_history.get_conversation_context(user_id)
             conversation_id = context["conversation_id"]
-
-            # Save user message
+            msg_to_save = str(user_input) if not isinstance(user_input, str) else user_input
             await self.chat_history.save_message(
-                conversation_id, user_id, "USER", user_input
+                conversation_id, user_id, "USER", msg_to_save
             )
 
             slots = context["slots"]
@@ -37,19 +37,24 @@ class ConversationService:
                 "awaiting_slot": context.get("awaiting_slot"),
                 "task_title": context.get("task_title"),
                 "intent": context.get("intent"),
+                "user_id": user_id
             }
 
             async for mode, chunk in chat_graph.astream(state, stream_mode=["custom", "values"]):
                 if mode == "custom" and chunk.get("type") == "schedule_start":
+                    msg = chunk["message"]
+                    if not isinstance(msg, str):
+                        msg = str(msg)
                     await self.chat_history.save_message(
-                        conversation_id, user_id, "ASSISTANT", chunk["message"], metadata=convert_datetime(state)
+                        conversation_id, user_id, "ASSISTANT", msg, metadata=convert_datetime(state)
                     )
                     yield mode, chunk
                 elif mode == "custom" and chunk.get("type") == "subtask":
-                    yield mode, chunk
+                    yield mode, safe_convert(chunk)
                 elif mode == "values" and "response" in chunk:
                     response = chunk["response"]
-                    response_text = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False)
+                    # response가 직렬화 불가 객체면 str로 변환
+                    response_text = response if isinstance(response, str) else str(response)
                     await self.chat_history.save_message(
                         conversation_id,
                         user_id,
@@ -57,9 +62,9 @@ class ConversationService:
                         response_text,
                         convert_datetime(state)
                     )
-                    yield mode, chunk
+                    yield mode, safe_convert(chunk)
                 else:
-                    yield mode, chunk
+                    yield mode, safe_convert(chunk)
             logger.info(f"Successfully streamed conversation for user {user_id}")
         except Exception as e:
             logger.error(f"Error in stream_schedule for user {user_id}: {e}")
@@ -68,5 +73,27 @@ class ConversationService:
                 "intent": "general",
                 "slots": {}
             }
+
+    # 일정 데이터 조회
+    async def fetch_schedules(self, user_id, start, end, task_title_keyword, category):
+        backend_url = os.getenv("SCHEDULE_BACKEND_URL", "http://localhost:8001/chat/query")
+        payload = {
+            "user_id": user_id,
+            "start": start,
+            "end": end,
+            "task_title_keyword": task_title_keyword,
+            "category": category
+        }
+        logger.info(f"[fetch_schedules] 쿼리 생성 결과: {payload}")
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(backend_url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                logger.info("[fetch_schedule] 백엔드 통신 성공")
+                return data.get("data", [])
+        except Exception as e:
+            logger.error(f"[fetch_schedules] 백엔드 통신 오류: {e}")
+            return []
 
 conversation_service = ConversationService()
