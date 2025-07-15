@@ -36,3 +36,14 @@ generate_schemas = [
 ]
 generate_parser = StructuredOutputParser.from_response_schemas(generate_schemas)
 generate_format_instructions = generate_parser.get_format_instructions()
+
+# 쿼리 parser
+query_schemas = [
+    ResponseSchema(name="user_id", description="user_id"),
+    ResponseSchema(name="start", description="시작 시간"),
+    ResponseSchema(name="end", description="종료 시간"),
+    ResponseSchema(name="task_title_keyword", description="task_title_keyword"),
+    ResponseSchema(name="category", description="category")
+]
+query_parser = StructuredOutputParser.from_response_schemas(query_schemas)
+query_format_instructions = query_parser.get_format_instructions()
