@@ -24,3 +24,4 @@ class ConversationState(TypedDict):
     recommendation_given: Optional[bool]
     schedule_ready: Optional[bool]
     user_feedback: Optional[str]  # recommend, generate, other
+    type: Optional[str]
