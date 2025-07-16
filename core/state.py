@@ -25,3 +25,4 @@ class ConversationState(TypedDict):
     schedule_ready: Optional[bool]
     user_feedback: Optional[str]  # recommend, generate, other
     type: Optional[str]
+    has_fetched_schedule: Optional[bool]  # 일정 조회 중복 방지 플래그

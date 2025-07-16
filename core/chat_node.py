@@ -92,7 +92,7 @@ class SlotRecommender(BaseNode):
             state["conversation_context"] = "recommendation_given"
             state["recommended_slots"] = {slot_name: recommended_value} if slot_name else {}
             state["recommendation_given"] = True
-            logger.info("[SlotRecommender] 슬롯 추천 완료: %s", slot_name)
+            # logger.info("[SlotRecommender] 슬롯 추천 완료: %s", slot_name)
         except Exception as e:
             logger.error("슬롯 추천 중 오류 발생: %s", e)
             if awaiting_slot or recommend_slots:
@@ -113,38 +113,31 @@ class IntentDetector(BaseNode):
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         history = "\n".join(state.get("history", []))
-        
         # 현재 슬롯 대기 상태 정보 추가
         awaiting_slot = state.get("awaiting_slot")
         current_slots = state.get("slots", {})
-        
         # 대화 컨텍스트 정보를 히스토리에 추가
         context_info = ""
         if current_slots:
             context_info += f"\n[현재까지 수집된 일정 정보: {current_slots}]"
-        
         if awaiting_slot:
             context_info += f"\n[현재 상황: AI가 '{awaiting_slot}' 정보를 요청한 상태입니다.]"
-        
         enhanced_history = history + context_info
-
         try:
             result = self.chain.invoke({
                 "history": enhanced_history,
                 "user_input": state["user_input"]
             })
-            logger.info("[IntentDetected] User Info: %s", state["user_input"])
+            # logger.info("[IntentDetected] 사용자 입력: %s", state["user_input"])
             logger.info("[IntentDetected] raw_output: %s", result)
-
             if isinstance(result, dict):
                 intent = result.get("response", "general")
             else:
                 intent = str(result).strip()
-            state["intent"] = intent
         except Exception as e:
             logger.exception("[IntentDetected] Error: %s", e)
-            state["intent"] = "general"
-        return state
+            intent = "general"
+        return dict(state, intent=intent)
 
 # slot/category 추출 노드
 class SlotCategoryExtractor(BaseNode):
@@ -157,14 +150,7 @@ class SlotCategoryExtractor(BaseNode):
             return state
         if state.get("intent", "").strip().lower() == "confirm" and state.get("slots", {}).get("category") == "other":
             merged_task_title = merge_task_title(state.get("task_title", ""), state.get("slots", {}).get("task_title", ""))
-            state["task_title"] = merged_task_title
-            return state
-        
-        # 슬롯 대기 상태이고 사용자 입력이 있으면 추가 슬롯 추출
-        awaiting_slot = state.get("awaiting_slot")
-        if awaiting_slot and state.get("user_input"):
-            logger.info("[SlotCategoryExtractor] 슬롯 대기 상태에서 추가 슬롯 추출: %s", awaiting_slot)
-        
+            return dict(state, task_title=merged_task_title)
         history = "\n".join(state.get("history", []))
         task_title = state.get("task_title", "")
         try:
@@ -174,32 +160,35 @@ class SlotCategoryExtractor(BaseNode):
                 "task_title": task_title
             })
             logger.info("[SlotCategoryExtractor] %s", result)
+            new_slots = merge_slots(state.get("slots", {}), result.get("slots", {})) if isinstance(result, dict) else state.get("slots", {})
+            new_state = dict(state)
+            new_state["slots"] = new_slots
             if isinstance(result, dict):
-                state["slots"] = merge_slots(state.get("slots", {}), result.get("slots", {}))
                 if "type" in result and result["type"]:
-                    state["type"] = result["type"]
+                    new_state["type"] = result["type"]
                 for key in ["recommend_ask", "schedule_ask"]:
                     if key in result:
-                        state["slots"][key] = result[key]
+                        new_state["slots"][key] = result[key]
                 if result.get("task_title"):
-                    state["slots"]["task_title"] = result.get("task_title")
-                state["task_title"] = result.get("task_title", "")
-                if "category" in state["slots"]:
-                    state["category"] = state["slots"]["category"]
-                has_recommend_slots = any(v == "recommend" for v in state["slots"].values())
-                has_recommend_ask = state["slots"].get("recommend_ask", False) in [True, "True", "true"]
+                    new_state["slots"]["task_title"] = result.get("task_title")
+                new_state["task_title"] = result.get("task_title", "")
+                if "category" in new_state["slots"]:
+                    new_state["category"] = new_state["slots"]["category"]
+                has_recommend_slots = any(v == "recommend" for v in new_state["slots"].values())
+                has_recommend_ask = new_state["slots"].get("recommend_ask", False) in [True, "True", "true"]
                 if has_recommend_slots or has_recommend_ask:
-                    state["user_feedback"] = "recommend"
+                    new_state["user_feedback"] = "recommend"
                 else:
                     if state.get("user_feedback") is None:
-                        state["user_feedback"] = None
+                        new_state["user_feedback"] = None
             else:
                 logger.warning("[SlotCategoryExtractor] LLM 응답이 dict가 아님: %s", result)
+            return new_state
         except Exception as e:
             logger.exception("[SlotCategoryExtractor] Error: %s", e)
             if "slots" not in state:
-                state["slots"] = {}
-        return state
+                return dict(state, slots={})
+            return state
 
 # 누락된 슬롯 질문 노드
 class MissingSlotAsker(BaseNode):
@@ -234,7 +223,7 @@ class MissingSlotAsker(BaseNode):
                 next_node = "generate_project_schedule"
             else:
                 next_node = "generate_other_schedule"
-            state.update(
+            return dict(state,
                 ask=False,
                 awaiting_slot=None,
                 conversation_context="user_confirmed",
@@ -242,7 +231,6 @@ class MissingSlotAsker(BaseNode):
                 task_title=task_title,
                 type=type
             )
-            return state
         
         if state.get("awaiting_slot") and state.get("user_input"):
             state["awaiting_slot"] = None
@@ -252,7 +240,7 @@ class MissingSlotAsker(BaseNode):
         cat = state.get("slots", {}).get("category", "")
         cfg = self._CFG.get(cat)
         if not cfg:
-            state.update(
+            return dict(state,
                 ask=False,
                 response="죄송합니다. 활동 유형을 인식할 수 없습니다. 학습, 운동, 프로젝트 또는 반복 일정 중 하나를 알려주시겠어요?",
                 next_node=None 
@@ -305,7 +293,7 @@ class MissingSlotAsker(BaseNode):
                 return state
 
         missing = [f for f in cfg["required"] if not state["slots"].get(f)]
-        logger.info("[MissingSlotAsker] missing slot: %s", missing)
+        # logger.info("[MissingSlotAsker] missing slot: %s", missing)
 
         # 모든 필수 슬롯이 'auto' 또는 값이 있으면 바로 일정 생성으로 분기
         all_auto_or_filled = all(
@@ -314,7 +302,6 @@ class MissingSlotAsker(BaseNode):
         )
         if all_auto_or_filled and cfg["required"]:
             type_value = str(state.get('type') or state.get('slots', {}).get('type', '')).strip().lower()
-            logger.info(f"[MissingSlotAsker] type value for routing: {type_value!r}")
             if type_value == 'personal':
                 state.update(
                     ask=False,
@@ -322,7 +309,7 @@ class MissingSlotAsker(BaseNode):
                     conversation_context="awaiting_slot_input",
                     next_node="generate_schedule",
                 )
-                logger.info("[MissingSlotAsker] 모든 슬롯 추출 후 type이 personal이므로 PlannerGenerator로 분기합니다.")
+                # logger.info("[MissingSlotAsker] 모든 슬롯 추출 후 type이 personal이므로 PlannerGenerator로 분기합니다.")
             else:
                 state.update(
                     ask=False,
@@ -330,7 +317,7 @@ class MissingSlotAsker(BaseNode):
                     conversation_context="awaiting_slot_input",
                     next_node=cfg["next_node"],
                 )
-                logger.info("[MissingSlotAsker] 모든 필수 슬롯이 auto 또는 값이 있어 바로 일정 생성으로 이동합니다.")
+                # logger.info("[MissingSlotAsker] 모든 필수 슬롯이 auto 또는 값이 있어 바로 일정 생성으로 이동합니다.")
         elif missing:
             need = missing[0]
             state.update(
@@ -346,7 +333,7 @@ class MissingSlotAsker(BaseNode):
                 conversation_context="awaiting_slot_input",
                 next_node=cfg["next_node"],
             )
-            logger.info("[MissingSlotAsker] 슬롯이 모두 추출되었습니다.")
+            # logger.info("[MissingSlotAsker] 슬롯이 모두 추출되었습니다.")
         return state
 
 # Tavily 검색 노드
@@ -551,8 +538,9 @@ class CalendarQueryGenerationNode:
         })
         if isinstance(result, dict) and "start_time" in result and "start" not in result:
             result["start"] = result.pop("start_time")
+        # Only add user_id to the final returned result
         if isinstance(result, dict):
-            result.pop("user_id", None)
+            result = {**result, "user_id": state.get("user_id", "unknown")}
         return result
 
 # 일정 조회 요약
@@ -571,23 +559,31 @@ class CalendarQuerySummaryNode:
 class CalendarQueryNode(BaseNode):
     async def __call__(self, state):
         from services.conversation import conversation_service  
+        try:
+            query_json = CalendarQueryGenerationNode().__call__(state)
+            # logger.info(f"[CalendarQueryNode] 쿼리 생성 결과: {query_json}")
+            calendar_result = await conversation_service.fetch_schedules(
+                state.get("user_id", "unknown"),
+                query_json.get("start", ""),
+                query_json.get("end", ""),
+                query_json.get("task_title_keyword", ""),
+                query_json.get("category", "")
+            )
+            logger.info(f"[CalendarQueryNode] DB 응답 결과: {calendar_result}")
 
-        query_json = CalendarQueryGenerationNode().__call__(state)
-        logger.info(f"[CalendarQueryNode] 쿼리 생성 결과: {query_json}")
-        calendar_result = await conversation_service.fetch_schedules(
-            state.get("user_id", "unknown"),
-            query_json.get("start", ""),
-            query_json.get("end", ""),
-            query_json.get("task_title_keyword", ""),
-            query_json.get("category", "")
-        )
-        logger.info(f"[CalendarQueryNode] DB 응답 결과: {calendar_result}")
-
-        summary = CalendarQuerySummaryNode().__call__({
-            "calendar_results": calendar_result,
-            "user_input": state.get("user_input", ""),
-            "date": state.get("date", "")
-        })
-        logger.info(f"[CalendarQueryNode] 요약 결과: {summary}")
-        state["response"] = summary
-        return state
+            summary = CalendarQuerySummaryNode().__call__({
+                "calendar_results": calendar_result,
+                "user_input": state.get("user_input", ""),
+                "date": state.get("date", "")
+            })
+            logger.info(f"[CalendarQueryNode] 요약 결과: {summary}")
+            response = summary
+        except Exception as e:
+            logger.error(f"[CalendarQueryNode] 일정 조회 중 오류: {e}")
+            response = "일정 조회 중 오류가 발생했습니다."
+        # 새로운 state dict 반환
+        new_state = dict(state)
+        new_state["user_id"] = state.get("user_id", "unknown")
+        new_state["has_fetched_schedule"] = True
+        new_state["response"] = response
+        return new_state

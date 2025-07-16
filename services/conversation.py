@@ -7,6 +7,7 @@ import logging
 from core.utils import convert_datetime, safe_convert
 import os
 import httpx
+import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ class ConversationService:
         self.chat_history = chat_history_service
 
     async def stream_schedule(self, user_id: str, user_input: str, date: Optional[str] = None):
+        logger.info(f"[stream_schedule] 진입, user_id={user_id}, user_input={user_input}, date={date}")
         try:
             context = await self.chat_history.get_conversation_context(user_id)
             conversation_id = context["conversation_id"]
@@ -37,34 +39,54 @@ class ConversationService:
                 "awaiting_slot": context.get("awaiting_slot"),
                 "task_title": context.get("task_title"),
                 "intent": context.get("intent"),
-                "user_id": user_id
+                "user_id": user_id,
+                "has_fetched_schedule": False
             }
 
+            # step = 0
+            # last_state = None
             async for mode, chunk in chat_graph.astream(state, stream_mode=["custom", "values"]):
+                # step += 1
+                # logger.info(f"[stream_schedule] loop step={step}, mode={mode}, has_fetched_schedule={state.get('has_fetched_schedule')}, chunk_keys={list(chunk.keys()) if isinstance(chunk, dict) else type(chunk)}")
                 if mode == "custom" and chunk.get("type") == "schedule_start":
                     msg = chunk["message"]
                     if not isinstance(msg, str):
                         msg = str(msg)
                     await self.chat_history.save_message(
-                        conversation_id, user_id, "ASSISTANT", msg, metadata=convert_datetime(state)
+                        conversation_id, user_id, "ASSISTANT", msg, metadata=state
                     )
                     yield mode, chunk
                 elif mode == "custom" and chunk.get("type") == "subtask":
                     yield mode, safe_convert(chunk)
                 elif mode == "values" and "response" in chunk:
                     response = chunk["response"]
-                    # response가 직렬화 불가 객체면 str로 변환
                     response_text = response if isinstance(response, str) else str(response)
+                    state = dict(chunk)  
+                    last_state = state
+                    metadata = dict(state)
+                    if "has_fetched_schedule" not in metadata:
+                        metadata["has_fetched_schedule"] = state.get("has_fetched_schedule", False)
                     await self.chat_history.save_message(
                         conversation_id,
                         user_id,
                         "ASSISTANT",
                         response_text,
-                        convert_datetime(state)
+                        metadata
                     )
                     yield mode, safe_convert(chunk)
                 else:
                     yield mode, safe_convert(chunk)
+                    if mode == "values":
+                        state = dict(chunk)  #
+                        last_state = state
+            if last_state:
+                await self.chat_history.save_message(
+                    conversation_id,
+                    user_id,
+                    "ASSISTANT",
+                    last_state.get("response", ""),
+                    last_state
+                )
             logger.info(f"Successfully streamed conversation for user {user_id}")
         except Exception as e:
             logger.error(f"Error in stream_schedule for user {user_id}: {e}")
