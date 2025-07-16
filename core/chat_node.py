@@ -86,7 +86,6 @@ class SlotRecommender(BaseNode):
                     recommended_value = recommended_slots[slot_name]
             slot_value = recommended_value
             recommendation_msg = str(llm_response) if llm_response and str(llm_response).strip() else f"다음과 같이 추천드립니다:\n• {slot_value}"
-            recommendation_msg += "\n\n이대로 진행하시겠습니까?"
             state["response"] = recommendation_msg
             state["ask"] = True
             state["conversation_context"] = "recommendation_given"
