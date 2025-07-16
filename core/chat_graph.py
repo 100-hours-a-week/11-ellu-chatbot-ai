@@ -133,7 +133,6 @@ class ChatGraphBuilder:
         self.graph_builder.add_edge("calendar_query", END)
 
     def compile(self):
-        logger.info("[ChatGraphBuilder] compile() called. Compiling chat graph.")
         self.add_node()
         self.set_entry_point()
         self.add_conditional_edges()
