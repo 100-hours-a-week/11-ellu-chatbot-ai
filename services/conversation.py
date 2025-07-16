@@ -1,13 +1,11 @@
-import json
 from datetime import datetime
 from typing import Optional
 from core.chat_graph import chat_graph
 from core.database import chat_history_service 
 import logging
-from core.utils import convert_datetime, safe_convert
+from core.utils import safe_convert
 import os
 import httpx
-import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,49 +41,37 @@ class ConversationService:
                 "has_fetched_schedule": False
             }
 
-            # step = 0
-            # last_state = None
+            last_state = None
+            subtask_chunks = []
+
             async for mode, chunk in chat_graph.astream(state, stream_mode=["custom", "values"]):
-                # step += 1
-                # logger.info(f"[stream_schedule] loop step={step}, mode={mode}, has_fetched_schedule={state.get('has_fetched_schedule')}, chunk_keys={list(chunk.keys()) if isinstance(chunk, dict) else type(chunk)}")
                 if mode == "custom" and chunk.get("type") == "schedule_start":
-                    msg = chunk["message"]
-                    if not isinstance(msg, str):
-                        msg = str(msg)
-                    await self.chat_history.save_message(
-                        conversation_id, user_id, "ASSISTANT", msg, metadata=state
-                    )
                     yield mode, chunk
                 elif mode == "custom" and chunk.get("type") == "subtask":
+                    subtask_chunks.append(chunk)
                     yield mode, safe_convert(chunk)
                 elif mode == "values" and "response" in chunk:
-                    response = chunk["response"]
-                    response_text = response if isinstance(response, str) else str(response)
-                    state = dict(chunk)  
+                    state = dict(chunk)
                     last_state = state
-                    metadata = dict(state)
-                    if "has_fetched_schedule" not in metadata:
-                        metadata["has_fetched_schedule"] = state.get("has_fetched_schedule", False)
-                    await self.chat_history.save_message(
-                        conversation_id,
-                        user_id,
-                        "ASSISTANT",
-                        response_text,
-                        metadata
-                    )
                     yield mode, safe_convert(chunk)
                 else:
                     yield mode, safe_convert(chunk)
                     if mode == "values":
-                        state = dict(chunk)  #
+                        state = dict(chunk)
                         last_state = state
-            if last_state:
+
+            # 마지막 응답 저장
+            if last_state or subtask_chunks:
+                metadata = dict(last_state) if last_state else {}
+                if subtask_chunks:
+                    metadata["subtasks"] = subtask_chunks
+                content = last_state.get("response", "") if last_state else str([c.get("message", "") for c in subtask_chunks])
                 await self.chat_history.save_message(
                     conversation_id,
                     user_id,
                     "ASSISTANT",
-                    last_state.get("response", ""),
-                    last_state
+                    content,
+                    metadata
                 )
             logger.info(f"Successfully streamed conversation for user {user_id}")
         except Exception as e:
@@ -98,7 +84,7 @@ class ConversationService:
 
     # 일정 데이터 조회
     async def fetch_schedules(self, user_id, start, end, task_title_keyword, category):
-        backend_url = os.getenv("SCHEDULE_BACKEND_URL", "http://localhost:8001/chat/query")
+        backend_url = os.getenv("SCHEDULE_BACKEND_URL", "http://localhost:8080/chat/query")
         payload = {
             "user_id": user_id,
             "start": start,

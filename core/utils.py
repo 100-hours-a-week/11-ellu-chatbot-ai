@@ -73,14 +73,13 @@ def stream_llm_chunks(stream, writer=None, message_type="stream", message_key="m
     response_chunks = []
     for chunk in stream:
         if chunk is None:
-            continue  # break 대신 continue
+            continue 
         content = extract_content(chunk)
         if content is not None and content != "":
             content_str = str(content)
             response_chunks.append(content_str)
             if writer:
                 writer({"type": message_type, message_key: content_str})
-        # 종료 조건: subtask_end 등 명확한 신호만 break
         if isinstance(chunk, dict) and chunk.get("type") == "subtask_end":
             break
     return "".join(response_chunks) 
