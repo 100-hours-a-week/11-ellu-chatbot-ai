@@ -29,20 +29,21 @@ async def chat_endpoint(req: ChatRequest):
     user_input = req.message or ""
     return StreamingResponse(stream_chat(user_input, user_id, date), media_type="text/event-stream")
 
-# 쿼리 API 엔드포인트 (prefix 없이 루트에 등록)
+# 쿼리 API 엔드포인트
 @router_query.post(
     "/chat/query",
     summary="일정 쿼리",
     description="쿼리 파라미터(JSON)를 받아서 일정 데이터를 조회하고, CalendarQueryResponse로 반환"
 )
 async def query_endpoint(req: CalendarQueryRequest) -> CalendarQueryResponse:
-    data = await conversation_service.fetch_schedules(
-        req.user_id,
-        req.start,
-        req.end,
-        req.task_title_keyword,
-        req.category
-    )
-    return await chat_query_calendar({"message": "calendar_query_result", "data": data})
+    user_id = req.user_id
+    user_input = req.task_title_keyword or "캘린더 조회"
+    date = req.start  
+
+    async for mode, chunk in conversation_service.stream_schedule(user_id, user_input, date):
+        if mode == "values" and "response" in chunk:
+            return await chat_query_calendar({"message": "calendar_query_result", "data": chunk["response"]})
+    # 예외 상황
+    return await chat_query_calendar({"message": "calendar_query_result", "data": []})
 
 

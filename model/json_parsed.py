@@ -39,7 +39,6 @@ generate_format_instructions = generate_parser.get_format_instructions()
 
 # 쿼리 parser
 query_schemas = [
-    ResponseSchema(name="user_id", description="user_id"),
     ResponseSchema(name="start", description="시작 시간"),
     ResponseSchema(name="end", description="종료 시간"),
     ResponseSchema(name="task_title_keyword", description="task_title_keyword"),

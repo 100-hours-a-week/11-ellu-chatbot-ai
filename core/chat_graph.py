@@ -37,7 +37,7 @@ class ChatGraphBuilder:
         self.graph_builder.add_conditional_edges(
             "detect_intent",
             lambda state: (
-                "calendar_query" if state.get("intent") == "calendar"
+                "calendar_query" if state.get("intent") == "calendar" and not state.get("has_fetched_schedule")
                 else "detect_slot_and_category" if state.get("intent") in ["schedule", "confirm"]
                 else "general_qa"
             ),
@@ -133,6 +133,7 @@ class ChatGraphBuilder:
         self.graph_builder.add_edge("calendar_query", END)
 
     def compile(self):
+        logger.info("[ChatGraphBuilder] compile() called. Compiling chat graph.")
         self.add_node()
         self.set_entry_point()
         self.add_conditional_edges()

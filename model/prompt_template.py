@@ -252,7 +252,7 @@ slot_recommendation_prompt = PromptTemplate(
 1. 'other'이외의 카테고리는 현재 비어있거나 recommend로 추출된 슬롯을 중점으로 추천하되, 대화 기록과 사용자 입력도 참고해주세요.
 
 2. 슬롯 종류
-- period: 기간(예: 3일, 일주일, 한달 등)
+- period: 기간(예: 내일(1일), 3일, 일주일, 한달 등)
 - duration_minutes: 하루 예상 소요 시간(예: 1시간), 시작 및 종료 시간(예: 09:00-10:00)
 - preferred_time: 선호 시간대
 - deadline: 마감일(YYYY-MM-DD)
