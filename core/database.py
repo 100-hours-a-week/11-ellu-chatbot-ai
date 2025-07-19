@@ -1,8 +1,7 @@
 import asyncpg
 import json
 import os
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional
 import logging
 import os
 from dotenv import load_dotenv
@@ -92,6 +91,7 @@ class ChatHistoryService:
                 "awaiting_slot": last_state.get("awaiting_slot"),
                 "intent": last_state.get("intent"),
                 "task_title": last_state.get("task_title"),
+                "has_fetched_schedule": last_state.get("has_fetched_schedule", False),
             }
     
     async def save_message(

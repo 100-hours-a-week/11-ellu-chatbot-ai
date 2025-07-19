@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 from core.state import ConversationState
-from core.chat_node import IntentDetector, SlotCategoryExtractor, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator, OtherGenerator, ScheduleAsk, UserFeedbackProcessor, SlotRecommender
+from core.chat_node import IntentDetector, SlotCategoryExtractor, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator, OtherGenerator, ScheduleAsk, UserFeedbackProcessor, SlotRecommender, CalendarQueryGenerationNode, CalendarQuerySummaryNode, CalendarQueryNode
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +28,7 @@ class ChatGraphBuilder:
         self.graph_builder.add_node("schedule_ask", ScheduleAsk())        
         self.graph_builder.add_node("process_user_feedback", UserFeedbackProcessor())
         self.graph_builder.add_node("recommend_slots", SlotRecommender())
+        self.graph_builder.add_node("calendar_query", CalendarQueryNode()) 
 
     def set_entry_point(self):
         self.graph_builder.set_entry_point("detect_intent")
@@ -36,9 +37,12 @@ class ChatGraphBuilder:
         self.graph_builder.add_conditional_edges(
             "detect_intent",
             lambda state: (
-                "detect_slot_and_category" if state.get("intent") in ["schedule", "confirm"] else "general_qa"
+                "calendar_query" if state.get("intent") == "calendar" and not state.get("has_fetched_schedule")
+                else "detect_slot_and_category" if state.get("intent") in ["schedule", "confirm"]
+                else "general_qa"
             ),
             {
+                "calendar_query": "calendar_query",
                 "detect_slot_and_category": "detect_slot_and_category",
                 "general_qa": "general_qa"
             }
@@ -82,17 +86,17 @@ class ChatGraphBuilder:
         self.graph_builder.add_conditional_edges(
             "ask_missing_slot",
             lambda state: (
-                # (logger.info(f"[GRAPH] ask_missing_slot 분기: intent={state.get('intent')}, ask={state.get('ask')}, next_node={state.get('next_node')}, slots={state.get('slots')}") or None) or
                 ("general_qa" if state.get("intent") == "general" or state.get("conversation_context") == "general_query"
                 else "need_input" if state.get('ask', False)
                 else state.get('next_node') if state.get('next_node')
-                else {
-                    'exercise': 'search_exercise_info',
-                    'learning': 'generate_learning_schedule',
-                    'project': 'generate_project_schedule',
-                    'personal': 'generate_schedule',
-                    'other': 'generate_other_schedule',
-                }.get(state.get('slots', {}).get('category', ''), 'general_qa'))
+                else (
+                    'generate_schedule' if state.get('type', '') == 'personal' else {
+                        'exercise': 'search_exercise_info',
+                        'learning': 'generate_learning_schedule',
+                        'project': 'generate_project_schedule',
+                        'other': 'generate_other_schedule',
+                    }.get(state.get('slots', {}).get('category', ''), 'general_qa')
+                ))
             ),
             {
                 "need_input": END,
@@ -126,6 +130,7 @@ class ChatGraphBuilder:
         self.graph_builder.add_edge("generate_schedule", END) 
         self.graph_builder.add_edge("general_qa", END)
         self.graph_builder.add_edge("generate_other_schedule", END)
+        self.graph_builder.add_edge("calendar_query", END)
 
     def compile(self):
         self.add_node()

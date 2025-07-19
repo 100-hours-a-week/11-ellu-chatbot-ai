@@ -32,10 +32,28 @@ def parse_llm_response(raw_output: Any) -> Any:
 
 # 슬롯 dict 병합
 def merge_slots(existing: dict, new: dict) -> dict:
+    result = dict(existing)
+    new = new or {}
     for k, v in new.items():
-        if v and v.strip():
-            existing[k] = v
-    return existing
+        if k == "type":
+            continue  # type은 무시
+        if v and str(v).strip():
+            result[k] = v
+    return result
+
+# LLM 응답에서 content/text/response만 추출
+def extract_llm_content(obj):
+    if hasattr(obj, 'content'):
+        return obj.content
+    elif hasattr(obj, 'text'):
+        return obj.text
+    elif isinstance(obj, dict) and 'content' in obj:
+        return obj['content']
+    elif isinstance(obj, dict) and 'response' in obj:
+        return obj['response']
+    elif isinstance(obj, str):
+        return obj
+    return None
 
 # chunk에서 content 추출
 def extract_content(chunk: Any) -> Any:
@@ -54,10 +72,23 @@ def merge_task_title(old_title, new_title):
 def stream_llm_chunks(stream, writer=None, message_type="stream", message_key="message"):
     response_chunks = []
     for chunk in stream:
+        if chunk is None:
+            continue 
         content = extract_content(chunk)
-        if content is not None:
+        if content is not None and content != "":
             content_str = str(content)
             response_chunks.append(content_str)
             if writer:
                 writer({"type": message_type, message_key: content_str})
+        if isinstance(chunk, dict) and chunk.get("type") == "subtask_end":
+            break
     return "".join(response_chunks) 
+
+def safe_convert(obj):
+    if isinstance(obj, dict):
+        return {k: safe_convert(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [safe_convert(v) for v in obj]
+    elif hasattr(obj, '__str__') and not isinstance(obj, (str, int, float, bool, type(None))):
+        return str(obj)
+    return obj 

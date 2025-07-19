@@ -1,6 +1,6 @@
 from langchain.output_parsers import StructuredOutputParser
-from model.json_parsed import slot_parser, planner_parser, generate_parser
-from model.prompt_template import qa_prompt, exercise_prompt, learning_prompt, planner_prompt, project_prompt, other_prompt, schedule_ask_prompt, slot_recommendation_prompt, intent_prompt, slot_category_prompt
+from model.json_parsed import slot_parser, generate_parser, query_parser
+from model.prompt_template import qa_prompt, exercise_prompt, learning_prompt, planner_prompt, project_prompt, other_prompt, schedule_ask_prompt, slot_recommendation_prompt, intent_prompt, slot_category_prompt, calendar_query_generation_prompt, calendar_query_summary_prompt, calendar_query_summary_prompt
 from model.chat_llm import llm
 
 # ────────────────────────────────────────────────────────
@@ -37,3 +37,9 @@ def intent_chain() -> StructuredOutputParser:
 
 def slot_category_chain() -> StructuredOutputParser:
     return slot_category_prompt | llm | slot_parser
+
+def calendar_query_generation_chain() -> StructuredOutputParser:
+    return calendar_query_generation_prompt | llm | query_parser
+
+def calendar_query_summary_chain():
+    return calendar_query_summary_prompt | llm
