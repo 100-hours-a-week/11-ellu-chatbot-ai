@@ -1,3 +1,12 @@
+## [1.0.1](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/compare/v1.0.0...v1.0.1) (2025-07-19)
+
+
+### Bug Fixes
+
+* ASSISTANT 중복 저장 수정 ([#93](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/issues/93)) ([#94](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/issues/94)) ([10fff9b](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/commit/10fff9b4148efd13230dc3b36101dfcf22da9a0b))
+* chat/query API 엔드포인트 수정 ([#89](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/issues/89)) ([#90](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/issues/90)) ([e686519](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/commit/e686519df49e593b2078d3299fc59849e090fece))
+* fetch_schedule 무한 호출 오류 수정 ([#91](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/issues/91)) ([#92](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/issues/92)) ([4b3ce31](https://github.com/100-hours-a-week/11-ellu-chatbot-ai/commit/4b3ce31b4bf76274bb0cfc3d21080266eb3fd3bd))
+
 # 1.0.0 (2025-07-08)
 
 
