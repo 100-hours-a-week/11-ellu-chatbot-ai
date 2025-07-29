@@ -192,18 +192,17 @@ class SlotCategoryExtractor(BaseNode):
 # 누락된 슬롯 질문 노드
 class MissingSlotAsker(BaseNode):
     _CFG = {
-        "learning": dict(required=["period", "duration_minutes", "preferred_time"], next_node="schedule_generator"),
+        "learning": dict(required=["period", "duration_minutes", "preferred_time"], next_node="generate_learning_schedule"),
         "exercise": dict(required=["period", "duration_minutes", "preferred_time"], next_node="search_exercise_info"),
-        "project": dict(required=["deadline", "work_hours"], next_node="schedule_generator"),
+        "project": dict(required=["period", "duration_minutes", "preferred_time"], next_node="generate_project_schedule"),
         "other": dict(required=[], next_node="schedule_ask"),
+        "personal": dict(required=["frequency", "start_end_time"], next_node="generate_schedule"),
     }
 
     _QUESTIONS = {
         "period": "목표하는 기간이 어떻게 되나요? (예: 3일)",
         "duration_minutes": "하루에 몇 시간을 할애하실 수 있나요? (예: 1시간)",
         "preferred_time": "선호하는 시간대가 언제인가요?",
-        "deadline": "프로젝트 마감일이 언제인가요? (예: 2025‑05‑26)",
-        "work_hours": "프로젝트 업무시간을 알려주세요. (예: 09:00-17:00)",
         "frequency": "반복 주기가 어떻게 되나요? (예: 매일, 매주 월요일)",
         "start_end_time": "일정 시작 시간과 종료 시간을 알려주세요. (예: 09:00-10:00)",
     }
@@ -299,16 +298,32 @@ class MissingSlotAsker(BaseNode):
             (state["slots"].get(f) and state["slots"].get(f) == "auto") or state["slots"].get(f)
             for f in cfg["required"]
         )
-        if all_auto_or_filled and cfg["required"]:
-            type_value = str(state.get('type') or state.get('slots', {}).get('type', '')).strip().lower()
+        type_value = str(state.get('type') or state.get('slots', {}).get('type', '')).strip().lower()
+        # type이 명시되어 있으면 category와 무관하게 type 우선 분기
+        if type_value:
             if type_value == 'personal':
+                for required_slot in self._CFG["personal"]["required"]:
+                    if not state["slots"].get(required_slot):
+                        state.update(
+                            ask=True,
+                            awaiting_slot=required_slot,
+                            conversation_context="awating_slot_input",
+                            response=self._QUESTIONS[required_slot],
+                            next_node="generate_schedule",
+                        )
+                        return state
                 state.update(
                     ask=False,
                     awaiting_slot=None,
                     conversation_context="awaiting_slot_input",
                     next_node="generate_schedule",
                 )
-                # logger.info("[MissingSlotAsker] 모든 슬롯 추출 후 type이 personal이므로 PlannerGenerator로 분기합니다.")
+                return state
+            # type이 다른 값일 경우에도 필요하다면 여기에 추가 분기 가능
+        if all_auto_or_filled and cfg["required"]:
+            if type_value == 'personal':
+                # 위에서 처리됨
+                pass
             else:
                 state.update(
                     ask=False,

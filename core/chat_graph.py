@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 from core.state import ConversationState
-from core.chat_node import IntentDetector, SlotCategoryExtractor, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator, OtherGenerator, ScheduleAsk, UserFeedbackProcessor, SlotRecommender, CalendarQueryGenerationNode, CalendarQuerySummaryNode, CalendarQueryNode
+from core.chat_node import IntentDetector, SlotCategoryExtractor, MissingSlotAsker, ExerciseSearchInfo, ExerciseScheduleGenerator, LearningScheduleGenerator, ProjectScheduleGenerator, QaGenerator, PlannerGenerator, OtherGenerator, ScheduleAsk, UserFeedbackProcessor, SlotRecommender, CalendarQueryNode
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -86,17 +86,18 @@ class ChatGraphBuilder:
         self.graph_builder.add_conditional_edges(
             "ask_missing_slot",
             lambda state: (
-                ("general_qa" if state.get("intent") == "general" or state.get("conversation_context") == "general_query"
+                "general_qa" if state.get("intent") == "general" or state.get("conversation_context") == "general_query"
                 else "need_input" if state.get('ask', False)
                 else state.get('next_node') if state.get('next_node')
                 else (
-                    'generate_schedule' if state.get('type', '') == 'personal' else {
+                    # type이 있으면 type 우선 분기
+                    'generate_schedule' if state.get('type', '') else {
                         'exercise': 'search_exercise_info',
                         'learning': 'generate_learning_schedule',
                         'project': 'generate_project_schedule',
                         'other': 'generate_other_schedule',
                     }.get(state.get('slots', {}).get('category', ''), 'general_qa')
-                ))
+                )
             ),
             {
                 "need_input": END,
